@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifications
+  namespace: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notifications
+  template:
+    metadata:
+      labels:
+        app: notifications
+    spec:
+      containers:
+        - name: notifications
+          image: notifications-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8005
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: JWT_SECRET
+            - name: JWT_ALGORITHM
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: JWT_ALGORITHM
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: LOG_LEVEL
+            - name: DB_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: DB_PATH
+            - name: SERVICE_NAME
+              value: notifications-service
+            - name: PORT
+              value: "8005"
+          volumeMounts:
+            - name: notifications-data
+              mountPath: /data
+          livenessProbe:
+            tcpSocket:
+              port: 8005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "600m"
+              memory: "512Mi"
+      volumes:
+        - name: notifications-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifications
+  namespace: backend
+spec:
+  selector:
+    app: notifications
+  ports:
+    - port: 8005
+      targetPort: 8005

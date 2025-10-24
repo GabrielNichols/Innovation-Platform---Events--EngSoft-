@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: participants
+  namespace: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: participants
+  template:
+    metadata:
+      labels:
+        app: participants
+    spec:
+      containers:
+        - name: participants
+          image: participants-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8004
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: JWT_SECRET
+            - name: JWT_ALGORITHM
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: JWT_ALGORITHM
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: LOG_LEVEL
+            - name: DB_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: DB_PATH
+            - name: SERVICE_NAME
+              value: participants-service
+            - name: PORT
+              value: "8004"
+          volumeMounts:
+            - name: participants-data
+              mountPath: /data
+          livenessProbe:
+            tcpSocket:
+              port: 8004
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8004
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "600m"
+              memory: "512Mi"
+      volumes:
+        - name: participants-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: participants
+  namespace: backend
+spec:
+  selector:
+    app: participants
+  ports:
+    - port: 8004
+      targetPort: 8004

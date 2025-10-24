@@ -1,0 +1,68 @@
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: .`n      dockerfile: ./gateway/Dockerfile
+    env_file:
+      - ./gateway/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth
+      - events
+      - projects
+      - participants
+      - notifications
+
+  auth:
+    build:
+      context: .`n      dockerfile: ./auth-service/Dockerfile
+    env_file:
+      - ./auth-service/.env
+    ports:
+      - "8001:8001"
+
+  events:
+    build:
+      context: .`n      dockerfile: ./events-service/Dockerfile
+    env_file:
+      - ./events-service/.env
+    volumes:
+      - ./events-service/data:/app/data
+    ports:
+      - "8002:8002"
+
+  projects:
+    build:
+      context: .`n      dockerfile: ./projects-service/Dockerfile
+    env_file:
+      - ./projects-service/.env
+    volumes:
+      - ./projects-service/data:/app/data
+    ports:
+      - "8003:8003"
+
+  participants:
+    build:
+      context: .`n      dockerfile: ./participants-service/Dockerfile
+    env_file:
+      - ./participants-service/.env
+    volumes:
+      - ./participants-service/data:/app/data
+    ports:
+      - "8004:8004"
+
+  notifications:
+    build:
+      context: .`n      dockerfile: ./notifications-service/Dockerfile
+    env_file:
+      - ./notifications-service/.env
+    volumes:
+      - ./notifications-service/data:/app/data
+    ports:
+      - "8005:8005"
+
+networks:
+  default:
+    name: innovation-backend

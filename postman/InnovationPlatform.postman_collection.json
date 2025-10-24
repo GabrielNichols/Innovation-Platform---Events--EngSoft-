@@ -1,0 +1,412 @@
+{
+  "info": {
+    "name": "Innovation Platform Backend",
+    "_postman_id": "8c41a1f8-2fdf-4e0b-9b15-collection",
+    "description": "Collection covering the local microservices via the API Gateway.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Auth - Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "Auth - Validate Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{organizer_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/validate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "validate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Events - Create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"AI Hackathon\",\n  \"description\": \"Sample event for end-to-end tests\",\n  \"start_date\": \"2025-01-10T10:00:00Z\",\n  \"end_date\": \"2025-01-12T18:00:00Z\",\n  \"location\": \"Innovation Hub\",\n  \"categories\": [\"ai\", \"iot\"],\n  \"tags\": [\"innovation\"],\n  \"max_participants\": 200,\n  \"max_teams\": 40,\n  \"status\": \"draft\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.environment.set('event_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Events - Publish",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"published\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Events - Activate",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Events - Management List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/events/management",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "management"]
+            }
+          }
+        },
+        {
+          "name": "Events - Available",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/events/available",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "available"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "Projects - Create Submission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"AI Assistant\",\n  \"description\": \"Team Alpha submission\",\n  \"team_name\": \"Team Alpha\",\n  \"members\": 4,\n  \"category\": \"ai\",\n  \"skills\": [\"python\", \"ml\"],\n  \"progress\": 40\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/projects",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "projects"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.environment.set('project_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Projects - Approve Submission",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/projects/{{project_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "projects", "{{project_id}}", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Participants",
+      "item": [
+        {
+          "name": "Participants - Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"User One\",\n  \"email\": \"user1@example.com\",\n  \"skills\": [\"python\", \"teamwork\"],\n  \"profile_complete\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "register"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.id) {",
+                  "  pm.environment.set('participant_id', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Participants - Approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/participants/{{participant_id}}/approve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "participants", "{{participant_id}}", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Participants - List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/events/{{event_id}}/participants",
+              "host": ["{{base_url}}"],
+              "path": ["api", "events", "{{event_id}}", "participants"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "Notifications - Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipients\": \"approved\",\n  \"content\": \"Welcome to the innovation sprint!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/events/{{event_id}}/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "events", "{{event_id}}", "messages"]
+            }
+          }
+        },
+        {
+          "name": "Notifications - Update Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{organizer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notifications_enabled\": true,\n  \"alert_recipients\": [\"org1@example.com\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/events/{{event_id}}/notifications",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "events", "{{event_id}}", "notifications"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "event_id",
+      "value": ""
+    },
+    {
+      "key": "project_id",
+      "value": ""
+    },
+    {
+      "key": "participant_id",
+      "value": ""
+    }
+  ]
+}

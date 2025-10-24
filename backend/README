@@ -1,0 +1,84 @@
+Backend for the innovation platform is organized as a suite of FastAPI microservices exposed through a lightweight API Gateway.
+
+## Architecture
+
+- **API Gateway (8000)** – reverse proxy, CORS and request logging.
+- **Auth Service (8001)** – JWT validation and user identity lookup.
+- **Events Service (8002)** – CRUD for events and status transitions.
+- **Projects Service (8003)** – Project lifecycle tied to events.
+- **Participants Service (8004)** – Registration and approvals.
+- **Notifications Service (8005)** – Bulk messaging and notification preferences.
+- **Shared Module** – JWT utilities, TinyDB wrapper, common models, middleware and error handling.
+
+All services depend on a simple TinyDB storage layer (JSON files) for local development and share the same JWT secret/algorithm configuration. A `docker-compose.yml` is available for running the complete stack, and Kubernetes manifests under `k8s/` describe the production layout.
+
+## Quick Start (Local)
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate  # or source .venv/bin/activate on Linux/macOS
+pip install -r requirements.txt
+pytest
+```
+
+Launch a single service with uvicorn, e.g.:
+
+```bash
+cd events-service
+uvicorn main:app --reload --port 8002
+```
+
+## Docker Compose
+
+```bash
+cd backend
+docker compose up --build
+```
+
+Services are exposed at `http://localhost:<port>`. Gateway is available on port `8000`.
+
+## Kubernetes
+
+1. Build and push container images (tagged to match the names used inside `k8s/*-deployment.yaml`).
+2. Apply manifests:
+
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   kubectl apply -f k8s/secret.yaml
+   kubectl apply -f k8s/configmap.yaml
+   kubectl apply -f k8s
+   ```
+
+`ingress.yaml` expects an ingress controller (e.g., nginx) and routes `innovation.local` to the gateway service.
+
+## Tests & Static Analysis
+
+```bash
+pytest  # run automated tests for every service
+mypy --explicit-package-bases shared
+mypy --explicit-package-bases auth-service/app
+mypy --explicit-package-bases events-service/app
+mypy --explicit-package-bases projects-service/app
+mypy --explicit-package-bases participants-service/app
+mypy --explicit-package-bases notifications-service/app
+mypy --explicit-package-bases gateway/app
+```
+
+## Structure
+
+```
+backend/
+  gateway/
+  auth-service/
+  events-service/
+  projects-service/
+  participants-service/
+  notifications-service/
+  shared/
+  k8s/
+  docker-compose.yml
+  requirements.txt
+```
+
+Refer to each service's `README.md`, `API.md`, and `DEVELOPMENT.md` for detailed usage notes.
