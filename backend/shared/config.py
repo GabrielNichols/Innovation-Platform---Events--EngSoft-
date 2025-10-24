@@ -3,10 +3,19 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseSettings, Field
+from pydantic import Field
+
+# Support both Pydantic v1 and v2
+try:  # Pydantic v2 path
+    from pydantic_settings import BaseSettings as _BaseSettings, SettingsConfigDict
+    _USES_PYDANTIC_V2 = True
+except Exception:  # Fallback to Pydantic v1
+    from pydantic import BaseSettings as _BaseSettings  # type: ignore
+    SettingsConfigDict = None  # type: ignore
+    _USES_PYDANTIC_V2 = False
 
 
-class Settings(BaseSettings):
+class Settings(_BaseSettings):
     """Global settings shared between services."""
 
     jwt_secret: str = Field("dev-secret-key", env="JWT_SECRET")
@@ -16,9 +25,17 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO", env="LOG_LEVEL")
     port: int = Field(8000, env="PORT")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    if _USES_PYDANTIC_V2:
+        # Pydantic v2 settings
+        model_config = SettingsConfigDict(  # type: ignore[call-arg]
+            env_file=".env",
+            env_file_encoding="utf-8",
+        )
+    else:
+        # Pydantic v1 settings
+        class Config:  # type: ignore[no-redef]
+            env_file = ".env"
+            env_file_encoding = "utf-8"
 
     def ensure_data_dir(self) -> Path:
         """Ensure that the database directory exists and return its path."""

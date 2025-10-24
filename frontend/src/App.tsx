@@ -273,10 +273,9 @@ export default function App() {
 
         {currentPage === 'create-event' && (
           <CreateEventPage
-            onComplete={(eventData) => {
-              // TODO: Send to backend
-              // POST /api/events (if new) or PUT /api/events/:id (if editing)
-              console.log('Event created/updated:', eventData);
+            onComplete={(savedEvent) => {
+              console.log('Event created/updated:', savedEvent);
+              setEventToEdit(undefined);
               setCurrentPage('events-management');
             }}
             onCancel={() => setCurrentPage('events-management')}
@@ -289,19 +288,16 @@ export default function App() {
             eventId={selectedEventId}
             userRole={userRole === 'admin' ? 'admin' : 'organizer'}
             onBack={() => setCurrentPage('events-management')}
-            onEdit={() => {
-              // TODO: Fetch event data from backend
-              // GET /api/events/:id
-              // setEventToEdit(eventData);
+            onEdit={(event) => {
+              setEventToEdit(event);
               setCurrentPage('create-event');
             }}
-            onDelete={userRole === 'admin' ? () => {
-              // TODO: DELETE /api/events/:id
-              console.log('Delete event:', selectedEventId);
-              setCurrentPage('events-management');
-            } : undefined}
-            // TODO: Pass event data from backend
-            // eventData={eventData}
+            onDelete={userRole === 'admin'
+              ? (eventId) => {
+                  console.log('Delete event:', eventId);
+                  setCurrentPage('events-management');
+                }
+              : undefined}
           />
         )}
         

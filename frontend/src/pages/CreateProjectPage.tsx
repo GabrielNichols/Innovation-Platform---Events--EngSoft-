@@ -4,27 +4,82 @@ import { GlassInput, GlassTextArea } from '../components/GlassInput';
 import { GlassCard } from '../components/GlassCard';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
-import { ChevronRight, ChevronLeft, Sparkles, TrendingUp } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Sparkles, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
+import {
+  getAvailableEvents,
+  createEventProject,
+  type Event,
+  type EventProject,
+  ApiError,
+} from '../api/api';
 
 interface CreateProjectPageProps {
-  onComplete: () => void;
+  onComplete: (project: EventProject) => void;
   onCancel: () => void;
+  defaultEventId?: string;
 }
 
-export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPageProps) {
+export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: CreateProjectPageProps) {
   const [step, setStep] = React.useState(1);
   const [formData, setFormData] = React.useState({
     title: '',
     problem: '',
     goals: '',
     category: '',
+    teamName: '',
     skills: [] as string[],
     positions: [] as { role: string; count: number }[],
   });
+  const [selectedEventId, setSelectedEventId] = React.useState(defaultEventId ?? '');
+  const [events, setEvents] = React.useState<Event[]>([]);
+  const [eventsLoading, setEventsLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [submitting, setSubmitting] = React.useState(false);
 
   const categories = ['Saúde', 'EdTech', 'Fintech', 'IoT', 'AI/ML', 'Blockchain', 'CleanTech', 'Smart City'];
   const skillsOptions = ['React', 'Python', 'Node.js', 'Machine Learning', 'UI/UX', 'IoT', 'Blockchain', 'Flutter', 'DevOps'];
   const roleOptions = ['Frontend Developer', 'Backend Developer', 'ML Engineer', 'UX/UI Designer', 'Product Manager', 'DevOps Engineer'];
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+
+    async function loadEvents() {
+      try {
+        setEventsLoading(true);
+        const data = await getAvailableEvents(controller.signal);
+        if (!isMounted) return;
+        setEvents(data);
+        if (!selectedEventId) {
+          const preferred = data.find((event) => event.id === defaultEventId);
+          const firstEvent = preferred || data[0];
+          if (firstEvent) {
+            setSelectedEventId(firstEvent.id);
+          }
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Não foi possível carregar os eventos disponíveis.');
+        }
+      } finally {
+        if (isMounted) {
+          setEventsLoading(false);
+        }
+      }
+    }
+
+    loadEvents();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [defaultEventId]);
 
   const toggleSkill = (skill: string) => {
     setFormData(prev => ({
@@ -51,13 +106,78 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
     }));
   };
 
+  const handleSubmit = async () => {
+    if (!selectedEventId) {
+      setError('Selecione o evento em que seu projeto será submetido.');
+      setStep(1);
+      return;
+    }
+
+    if (!formData.teamName.trim()) {
+      setError('Informe um nome para a equipe.');
+      setStep(3);
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    const descriptionSegments = [
+      formData.problem && `Problema: ${formData.problem}`,
+      formData.goals && `Objetivos: ${formData.goals}`,
+      formData.positions.length > 0 &&
+        `Vagas Abertas: ${formData.positions.map((pos) => `${pos.role} (${pos.count})`).join(', ')}`,
+    ].filter(Boolean) as string[];
+
+    const description = descriptionSegments.join('\n\n');
+
+    try {
+      const project = await createEventProject(selectedEventId, {
+        title: formData.title.trim(),
+        description,
+        category: formData.category || 'Outros',
+        teamName: formData.teamName.trim(),
+        skills: formData.skills,
+      });
+
+      onComplete(project);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Não foi possível submeter o projeto. Tente novamente.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const attractivenessScore = Math.min(
     100,
     (formData.title ? 20 : 0) +
     (formData.problem ? 20 : 0) +
     (formData.goals ? 20 : 0) +
+    (formData.teamName ? 10 : 0) +
     (formData.skills.length * 5) +
     (formData.positions.length * 10)
+  );
+
+  const canProceedStep1 = Boolean(
+    selectedEventId &&
+    formData.title.trim() &&
+    formData.problem.trim() &&
+    formData.goals.trim() &&
+    formData.category
+  );
+
+  const canProceedStep2 = formData.skills.length > 0;
+  const canSubmit = Boolean(
+    selectedEventId &&
+    formData.positions.length > 0 &&
+    formData.teamName.trim() &&
+    !submitting
   );
 
   return (
@@ -68,6 +188,21 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
           <h2 className="mb-2">Criar Novo Projeto</h2>
           <p className="text-muted-foreground">Passo {step} de 3</p>
         </div>
+
+        {error && (
+          <GlassCard elevation="medium" className="mb-6 border border-red-500/30 bg-red-500/5">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-500" />
+              <div className="flex-1">
+                <h4 className="text-red-500">Algo deu errado</h4>
+                <p className="text-muted-foreground">{error}</p>
+              </div>
+              <GlassButton variant="ghost" size="sm" onClick={() => setError(null)}>
+                Fechar
+              </GlassButton>
+            </div>
+          </GlassCard>
+        )}
 
         {/* Progress */}
         <GlassCard elevation="medium" className="mb-6">
@@ -92,6 +227,35 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
               <h3 className="mb-4">Problema & Objetivos</h3>
               
               <div className="space-y-4">
+                <div>
+                  <label className="block mb-2 text-foreground/80">Evento</label>
+                  {eventsLoading ? (
+                    <div className="glass-subtle rounded-lg p-3 flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando eventos disponíveis...
+                    </div>
+                  ) : events.length > 0 ? (
+                    <select
+                      className="w-full glass-subtle rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={selectedEventId}
+                      onChange={(e) => setSelectedEventId(e.target.value)}
+                    >
+                      <option value="" disabled>
+                        Selecione o evento
+                      </option>
+                      {events.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.name} • {event.status}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="glass-subtle rounded-lg p-4 text-sm text-muted-foreground">
+                      Nenhum evento disponível para submissão no momento. Verifique se você está inscrito em um evento ativo.
+                    </div>
+                  )}
+                </div>
+
                 <GlassInput
                   label="Título do Projeto"
                   placeholder="Ex: Sistema de Diagnóstico Médico com IA"
@@ -144,8 +308,11 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
                 variant="filled"
                 size="lg"
                 className="flex-1"
-                onClick={() => setStep(2)}
-                disabled={!formData.title || !formData.problem || !formData.goals}
+                onClick={() => {
+                  setError(null);
+                  setStep(2);
+                }}
+                disabled={!canProceedStep1}
               >
                 Próximo
                 <ChevronRight className="h-5 w-5" />
@@ -210,8 +377,11 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
                 variant="filled"
                 size="lg"
                 className="flex-1"
-                onClick={() => setStep(3)}
-                disabled={formData.skills.length === 0}
+                onClick={() => {
+                  setError(null);
+                  setStep(3);
+                }}
+                disabled={!canProceedStep2}
               >
                 Próximo
                 <ChevronRight className="h-5 w-5" />
@@ -227,6 +397,13 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
               <h3 className="mb-4">Vagas & Competências</h3>
 
               <div className="space-y-4 mb-6">
+                <GlassInput
+                  label="Nome da Equipe"
+                  placeholder="Ex: Equipe Alpha, Dream Team..."
+                  value={formData.teamName}
+                  onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
+                />
+
                 <div>
                   <label className="block mb-2 text-foreground/80">
                     Adicionar Vaga
@@ -331,11 +508,18 @@ export function CreateProjectPage({ onComplete, onCancel }: CreateProjectPagePro
               <GlassButton
                 variant="filled"
                 size="lg"
-                className="flex-1"
-                onClick={onComplete}
-                disabled={formData.positions.length === 0}
+                className="flex-1 flex items-center justify-center gap-2"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
               >
-                Publicar Projeto
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  'Publicar Projeto'
+                )}
               </GlassButton>
             </div>
           </div>

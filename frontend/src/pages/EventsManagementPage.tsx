@@ -18,51 +18,24 @@ import {
   Clock,
   Settings,
   Eye,
+  FolderKanban,
   Edit,
   Trash2,
   CheckCircle2,
   XCircle,
   AlertCircle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
-
-// TODO: Types should come from backend API
-interface Event {
-  id: string;
-  name: string;
-  description: string;
-  startDate: string;
-  endDate: string;
-  location: string;
-  status: 'draft' | 'published' | 'active' | 'finished';
-  maxTeams?: number;
-  maxParticipants?: number;
-  registeredParticipants: number;
-  submittedProjects: number;
-  formedTeams: number;
-  organizer: string;
-  categories: string[];
-  tags: string[];
-  createdAt: string;
-}
-
-interface EventProject {
-  id: string;
-  title: string;
-  eventId: string;
-  teamName: string;
-  members: number;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected';
-  category: string;
-  skills: string[];
-  submittedAt: string;
-}
-
-interface EventStats {
-  totalEvents: number;
-  activeEvents: number;
-  totalProjects: number;
-  totalParticipants: number;
-}
+import {
+  loadEventsManagement,
+  getEventProjects,
+  deleteEvent as deleteEventRequest,
+  type Event,
+  type EventProject,
+  type EventStats,
+  ApiError,
+} from '../api/api';
 
 interface EventsManagementPageProps {
   // TODO: Props will be populated by backend microservice
@@ -79,8 +52,8 @@ interface EventsManagementPageProps {
 
 export function EventsManagementPage({
   stats,
-  events = [],
-  projects = [],
+  events,
+  projects,
   userRole = 'organizer',
   onBack,
   onCreateEvent,
@@ -89,30 +62,196 @@ export function EventsManagementPage({
   const [selectedEvent, setSelectedEvent] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [filterStatus, setFilterStatus] = React.useState<string>('all');
+  const [eventsData, setEventsData] = React.useState<Event[]>(events ?? []);
+  const [statsData, setStatsData] = React.useState<EventStats | undefined>(stats);
+  const [projectsData, setProjectsData] = React.useState<EventProject[]>(projects ?? []);
+  const [loading, setLoading] = React.useState<boolean>((events?.length ?? 0) === 0);
+  const [projectsLoading, setProjectsLoading] = React.useState<boolean>(false);
+  const [refreshing, setRefreshing] = React.useState<boolean>(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [deletingEventId, setDeletingEventId] = React.useState<string | null>(null);
 
-  // TODO: Fetch from backend microservice
-  // GET /api/events/management - Get all events for organizer/admin
-  // GET /api/events/:id/stats - Get stats for specific event
-  // GET /api/events/:id/projects - Get projects for specific event
-  // POST /api/events - Create new event
-  // PUT /api/events/:id - Update event
-  // DELETE /api/events/:id - Delete event
-  // PATCH /api/events/:id/status - Change event status
+  const canManageEvents = userRole === 'organizer' || userRole === 'admin';
+  const canDeleteEvents = userRole === 'admin';
 
-  const displayStats = stats || {
-    totalEvents: 0,
-    activeEvents: 0,
-    totalProjects: 0,
-    totalParticipants: 0,
+  React.useEffect(() => {
+    if (Array.isArray(events)) {
+      setEventsData(events);
+    }
+  }, [events]);
+
+  React.useEffect(() => {
+    if (Array.isArray(projects)) {
+      setProjectsData(projects);
+    }
+  }, [projects]);
+
+  React.useEffect(() => {
+    setStatsData(stats);
+  }, [stats]);
+
+  const fetchProjectsForEvents = React.useCallback(
+    async (eventsList: Event[], signal?: AbortSignal) => {
+      if (!eventsList.length) {
+        setProjectsData([]);
+        return;
+      }
+
+      setProjectsLoading(true);
+      try {
+        const results = await Promise.all(
+          eventsList.map(async (event) => {
+            try {
+              return await getEventProjects(event.id, signal);
+            } catch (err) {
+              if (err instanceof DOMException && err.name === 'AbortError') {
+                return [];
+              }
+              throw err;
+            }
+          })
+        );
+        setProjectsData(results.flat());
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Falha ao carregar projetos vinculados aos eventos.');
+        }
+      } finally {
+        setProjectsLoading(false);
+      }
+    },
+    []
+  );
+
+  const fetchData = React.useCallback(
+    async (options?: { signal?: AbortSignal; silent?: boolean }) => {
+      if (!canManageEvents) return;
+      const { signal, silent } = options ?? {};
+
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      try {
+        const response = await loadEventsManagement(signal);
+        setStatsData(response.stats);
+        setEventsData(response.events);
+        await fetchProjectsForEvents(response.events, signal);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Erro inesperado ao buscar dados dos eventos.');
+        }
+      } finally {
+        if (silent) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [canManageEvents, fetchProjectsForEvents]
+  );
+
+  React.useEffect(() => {
+    if (Array.isArray(events) && events.length > 0) {
+      return;
+    }
+    if (!canManageEvents) return;
+
+    const controller = new AbortController();
+    fetchData({ signal: controller.signal });
+    return () => controller.abort();
+  }, [events, canManageEvents, fetchData]);
+
+  const handleRefresh = React.useCallback(() => {
+    fetchData({ silent: true });
+  }, [fetchData]);
+
+  const handleRetry = React.useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleDeleteEvent = React.useCallback(
+    async (eventId: string) => {
+      if (!canDeleteEvents) return;
+
+      const confirmed = typeof window !== 'undefined'
+        ? window.confirm('Tem certeza de que deseja deletar este evento? Esta ação não pode ser desfeita.')
+        : true;
+
+      if (!confirmed) return;
+
+      setDeletingEventId(eventId);
+      try {
+        const result = await deleteEventRequest(eventId);
+        if (!result?.success) {
+          throw new ApiError(500, 'Falha ao deletar o evento.');
+        }
+        await fetchData({ silent: true });
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Erro inesperado ao deletar o evento.');
+        }
+      } finally {
+        setDeletingEventId(null);
+      }
+    },
+    [canDeleteEvents, fetchData]
+  );
+
+  const displayStats = statsData || {
+    totalEvents: eventsData.length,
+    activeEvents: eventsData.filter((event) => event.status === 'active').length,
+    totalProjects: projectsData.length,
+    totalParticipants: eventsData.reduce(
+      (acc, event) => acc + (event.registeredParticipants ?? 0),
+      0
+    ),
   };
 
-  const filteredEvents = events.filter((event) => {
+  const filteredEvents = eventsData.filter((event) => {
     const matchesSearch =
       event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter = filterStatus === 'all' || event.status === filterStatus;
     return matchesSearch && matchesFilter;
   });
+
+  const filteredProjects = React.useMemo(() => {
+    if (!selectedEvent) return projectsData;
+    return projectsData.filter((project) => project.eventId === selectedEvent);
+  }, [selectedEvent, projectsData]);
+
+  const submittedProjectsCount = React.useMemo(
+    () => projectsData.filter((project) => project.status === 'submitted').length,
+    [projectsData]
+  );
+
+  const selectedEventName = React.useMemo(() => {
+    if (!selectedEvent) return undefined;
+    return eventsData.find((event) => event.id === selectedEvent)?.name;
+  }, [selectedEvent, eventsData]);
 
   const getStatusBadge = (status: Event['status']) => {
     const statusConfig = {
@@ -176,15 +315,41 @@ export function EventsManagementPage({
               </p>
             </div>
           </div>
-          <GlassButton 
-            variant="filled" 
-            size="lg"
-            onClick={onCreateEvent}
-          >
-            <Plus className="h-5 w-5" />
-            Criar Evento
-          </GlassButton>
+          <div className="flex items-center gap-2">
+            <GlassButton
+              variant="ghost"
+              size="lg"
+              onClick={handleRefresh}
+              disabled={loading || refreshing}
+              title="Atualizar dados"
+            >
+              <RefreshCw className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
+            </GlassButton>
+            <GlassButton 
+              variant="filled" 
+              size="lg"
+              onClick={onCreateEvent}
+              disabled={!canManageEvents}
+            >
+              <Plus className="h-5 w-5" />
+              Criar Evento
+            </GlassButton>
+          </div>
         </div>
+
+        {error && (
+          <GlassCard elevation="medium" className="border border-red-500/40 bg-red-500/5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-red-500">Não foi possível carregar os dados</h4>
+                <p className="text-muted-foreground">{error}</p>
+              </div>
+              <GlassButton variant="ghost" onClick={handleRetry} disabled={loading || refreshing}>
+                Tentar novamente
+              </GlassButton>
+            </div>
+          </GlassCard>
+        )}
 
         {/* Stats Overview */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -239,9 +404,9 @@ export function EventsManagementPage({
             <TabsTrigger value="projects">
               <Briefcase className="h-4 w-4 mr-2" />
               Projetos
-              {projects.filter((p) => p.status === 'submitted').length > 0 && (
+              {submittedProjectsCount > 0 && (
                 <Badge variant="destructive" className="ml-2">
-                  {projects.filter((p) => p.status === 'submitted').length}
+                  {submittedProjectsCount}
                 </Badge>
               )}
             </TabsTrigger>
@@ -279,7 +444,11 @@ export function EventsManagementPage({
             </GlassCard>
 
             {/* Events List */}
-            {filteredEvents.length > 0 ? (
+            {loading ? (
+              <GlassCard elevation="medium" className="py-8 text-center text-muted-foreground">
+                Carregando eventos...
+              </GlassCard>
+            ) : filteredEvents.length > 0 ? (
               <div className="space-y-4">
                 {filteredEvents.map((event) => (
                   <GlassCard key={event.id} elevation="high">
@@ -291,25 +460,33 @@ export function EventsManagementPage({
                             <h3>{event.name}</h3>
                             {getStatusBadge(event.status)}
                           </div>
-                          <p className="text-muted-foreground mb-3">{event.description}</p>
+                          <p className="text-muted-foreground mb-3">
+                            {event.description || 'Sem descrição cadastrada no momento.'}
+                          </p>
                           <div className="flex flex-wrap gap-4 text-muted-foreground">
                             <div className="flex items-center gap-2">
                               <Calendar className="h-4 w-4" />
                               <small>
-                                {event.startDate} - {event.endDate}
+                                {event.startDate
+                                  ? new Date(event.startDate).toLocaleDateString('pt-BR')
+                                  : 'Data inicial indefinida'}{' '}
+                                -{' '}
+                                {event.endDate
+                                  ? new Date(event.endDate).toLocaleDateString('pt-BR')
+                                  : 'Data final indefinida'}
                               </small>
                             </div>
                             <div className="flex items-center gap-2">
                               <MapPin className="h-4 w-4" />
-                              <small>{event.location}</small>
+                              <small>{event.location || 'Local não informado'}</small>
                             </div>
                             <div className="flex items-center gap-2">
                               <Users className="h-4 w-4" />
-                              <small>{event.registeredParticipants} participantes</small>
+                              <small>{event.registeredParticipants ?? 0} participantes</small>
                             </div>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <GlassButton 
                             variant="ghost" 
                             size="sm"
@@ -318,9 +495,29 @@ export function EventsManagementPage({
                             <Eye className="h-4 w-4" />
                             Ver Detalhes
                           </GlassButton>
+                          <GlassButton
+                            variant={selectedEvent === event.id ? 'filled' : 'ghost'}
+                            size="sm"
+                            onClick={() =>
+                              setSelectedEvent((prev) => (prev === event.id ? null : event.id))
+                            }
+                          >
+                            <FolderKanban className="h-4 w-4" />
+                            {selectedEvent === event.id ? 'Todos os Projetos' : 'Ver Projetos'}
+                          </GlassButton>
                           {userRole === 'admin' && (
-                            <GlassButton variant="ghost" size="sm" className="text-red-500 hover:bg-red-500/10">
-                              <Trash2 className="h-4 w-4" />
+                            <GlassButton
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:bg-red-500/10"
+                              onClick={() => handleDeleteEvent(event.id)}
+                              disabled={deletingEventId === event.id}
+                            >
+                              {deletingEventId === event.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
                             </GlassButton>
                           )}
                         </div>
@@ -331,35 +528,35 @@ export function EventsManagementPage({
                         <div className="text-center">
                           <div className="flex items-center justify-center gap-2 mb-1">
                             <Briefcase className="h-4 w-4 text-primary" />
-                            <h4>{event.submittedProjects}</h4>
+                            <h4>{event.submittedProjects ?? 0}</h4>
                           </div>
                           <p className="text-muted-foreground">Projetos</p>
                         </div>
                         <div className="text-center">
                           <div className="flex items-center justify-center gap-2 mb-1">
                             <Users className="h-4 w-4 text-emerald-500" />
-                            <h4>{event.formedTeams}</h4>
+                            <h4>{event.formedTeams ?? 0}</h4>
                           </div>
                           <p className="text-muted-foreground">Equipes</p>
                         </div>
                         <div className="text-center">
                           <div className="flex items-center justify-center gap-2 mb-1">
                             <Award className="h-4 w-4 text-orange-500" />
-                            <h4>{event.registeredParticipants}</h4>
+                            <h4>{event.registeredParticipants ?? 0}</h4>
                           </div>
                           <p className="text-muted-foreground">Inscritos</p>
                         </div>
                       </div>
 
                       {/* Categories & Tags */}
-                      {(event.categories.length > 0 || event.tags.length > 0) && (
+                      {(event.categories.length > 0 || (event.tags?.length ?? 0) > 0) && (
                         <div className="flex flex-wrap gap-2 pt-4 border-t border-border/50">
                           {event.categories.map((cat) => (
                             <Badge key={cat} variant="outline" className="hover:bg-primary/10">
                               {cat}
                             </Badge>
                           ))}
-                          {event.tags.map((tag) => (
+                          {event.tags?.map((tag) => (
                             <Badge key={tag} variant="outline" className="text-xs">
                               #{tag}
                             </Badge>
@@ -380,7 +577,7 @@ export function EventsManagementPage({
                     : 'Comece criando seu primeiro evento'
                 }
                 actionLabel="Criar Evento"
-                onAction={() => console.log('Create event')}
+                onAction={() => onCreateEvent?.()}
               />
             )}
           </TabsContent>
@@ -398,9 +595,31 @@ export function EventsManagementPage({
               </GlassButton>
             </div>
 
-            {projects.length > 0 ? (
+            {selectedEventName && (
+              <GlassCard elevation="medium" className="border border-primary/30 bg-primary/5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4>Filtro aplicado</h4>
+                    <p className="text-muted-foreground">
+                      Exibindo projetos vinculados ao evento <strong>{selectedEventName}</strong>
+                    </p>
+                  </div>
+                  <GlassButton variant="ghost" size="sm" onClick={() => setSelectedEvent(null)}>
+                    Limpar filtro
+                  </GlassButton>
+                </div>
+              </GlassCard>
+            )}
+
+            {projectsLoading && (
+              <GlassCard elevation="medium" className="py-6 text-center text-muted-foreground">
+                Carregando projetos...
+              </GlassCard>
+            )}
+
+            {filteredProjects.length > 0 ? (
               <div className="space-y-4">
-                {projects.map((project) => (
+                {filteredProjects.map((project) => (
                   <GlassCard key={project.id} elevation="medium">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex-1">
@@ -415,15 +634,19 @@ export function EventsManagementPage({
                           </div>
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4" />
-                            <small>{project.members} membros</small>
+                            <small>{project.members ?? project.teamMembers ?? 0} membros</small>
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4" />
-                            <small>{project.submittedAt}</small>
+                            <small>
+                              {project.submittedAt
+                                ? new Date(project.submittedAt).toLocaleString('pt-BR')
+                                : 'Data não informada'}
+                            </small>
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {project.skills.map((skill, idx) => (
+                          {(project.skills ?? []).map((skill, idx) => (
                             <Badge key={idx} variant="outline" className="text-xs">
                               {skill}
                             </Badge>
@@ -460,7 +683,11 @@ export function EventsManagementPage({
               <EmptyState
                 icon={Inbox}
                 title="Nenhum projeto submetido"
-                description="Quando os participantes submeterem projetos, eles aparecerão aqui"
+                description={
+                  projectsLoading
+                    ? 'Carregando projetos...'
+                    : 'Quando os participantes submeterem projetos, eles aparecerão aqui'
+                }
               />
             )}
           </TabsContent>

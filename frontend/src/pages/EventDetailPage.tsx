@@ -32,39 +32,32 @@ import {
   TrendingUp,
   AlertCircle,
   FileText,
-  Link2
+  Link2,
+  Loader2,
 } from 'lucide-react';
-import { EventFormData } from './CreateEventPage';
+import {
+  getEvent,
+  getEventParticipants,
+  getEventProjects,
+  approveParticipant,
+  rejectParticipant,
+  updateProjectStatus,
+  sendEventMessage,
+  duplicateEvent,
+  exportEventData,
+  type Event,
+  type EventParticipant,
+  type EventProject,
+  ApiError,
+} from '../api/api';
 
 interface EventDetailPageProps {
   eventId: string;
-  eventData?: EventFormData;
+  eventData?: Event;
   userRole: 'organizer' | 'admin';
   onBack: () => void;
-  onEdit: () => void;
-  onDelete?: () => void;
-}
-
-interface Participant {
-  id: string;
-  name: string;
-  email: string;
-  skills: string[];
-  status: 'pending' | 'approved' | 'rejected' | 'waitlist';
-  registeredAt: string;
-  profileComplete: boolean;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  teamName: string;
-  teamMembers: number;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected';
-  category: string;
-  submittedAt?: string;
-  progress: number;
+  onEdit: (event: Event) => void;
+  onDelete?: (eventId: string) => void;
 }
 
 export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, onDelete }: EventDetailPageProps) {
@@ -73,64 +66,22 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
   const [filterStatus, setFilterStatus] = React.useState<string>('all');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [messageText, setMessageText] = React.useState('');
+  const [eventDetails, setEventDetails] = React.useState<Event | null>(eventData ?? null);
+  const [participants, setParticipants] = React.useState<EventParticipant[]>([]);
+  const [projects, setProjects] = React.useState<EventProject[]>([]);
+  const [loading, setLoading] = React.useState<boolean>(!eventData);
+  const [participantsLoading, setParticipantsLoading] = React.useState(false);
+  const [projectsLoading, setProjectsLoading] = React.useState(false);
+  const [messageLoading, setMessageLoading] = React.useState(false);
+  const [duplicateLoading, setDuplicateLoading] = React.useState(false);
+  const [downloadType, setDownloadType] = React.useState<'participants' | 'projects' | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
-  // Mock data - TODO: Replace with backend data
-  const [participants, setParticipants] = React.useState<Participant[]>([
-    {
-      id: '1',
-      name: 'Ana Silva',
-      email: 'ana@email.com',
-      skills: ['React', 'UI/UX'],
-      status: 'pending',
-      registeredAt: '2025-01-15',
-      profileComplete: true,
-    },
-    {
-      id: '2',
-      name: 'Carlos Santos',
-      email: 'carlos@email.com',
-      skills: ['Python', 'ML'],
-      status: 'approved',
-      registeredAt: '2025-01-14',
-      profileComplete: true,
-    },
-    {
-      id: '3',
-      name: 'Beatriz Costa',
-      email: 'beatriz@email.com',
-      skills: ['Node.js', 'Docker'],
-      status: 'approved',
-      registeredAt: '2025-01-13',
-      profileComplete: false,
-    },
-  ]);
+  const currentEvent = eventDetails;
+  const isLoadingInitial = loading && !currentEvent;
 
-  const [projects, setProjects] = React.useState<Project[]>([
-    {
-      id: '1',
-      name: 'HealthAI',
-      description: 'Plataforma de diagnóstico assistido por IA',
-      teamName: 'Team Alpha',
-      teamMembers: 4,
-      status: 'submitted',
-      category: 'Saúde',
-      submittedAt: '2025-01-16',
-      progress: 60,
-    },
-    {
-      id: '2',
-      name: 'EduConnect',
-      description: 'Rede social educacional gamificada',
-      teamName: 'Team Beta',
-      teamMembers: 3,
-      status: 'approved',
-      category: 'Educação',
-      submittedAt: '2025-01-15',
-      progress: 80,
-    },
-  ]);
-
-  const stats = {
+  const participantStats = React.useMemo(() => ({
     totalParticipants: participants.length,
     pending: participants.filter(p => p.status === 'pending').length,
     approved: participants.filter(p => p.status === 'approved').length,
@@ -138,54 +89,309 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
     totalProjects: projects.length,
     projectsApproved: projects.filter(p => p.status === 'approved').length,
     projectsPending: projects.filter(p => p.status === 'submitted').length,
+  }), [participants, projects]);
+
+  const clampProgress = React.useCallback((value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return 0;
+    }
+    return Math.min(100, Math.max(0, Math.round(value)));
+  }, []);
+
+  React.useEffect(() => {
+    if (eventData) {
+      setEventDetails(eventData);
+    }
+  }, [eventData]);
+
+  const loadEventDetails = React.useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const response = await getEvent(eventId, signal);
+        setEventDetails(response);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        if (!eventData) {
+          if (err instanceof ApiError) {
+            setError(err.message);
+          } else if (err instanceof Error) {
+            setError(err.message);
+          } else {
+            setError('Erro inesperado ao carregar detalhes do evento.');
+          }
+        }
+      }
+    },
+    [eventId, eventData]
+  );
+
+  const loadParticipants = React.useCallback(
+    async (options?: { signal?: AbortSignal; showLoading?: boolean }) => {
+      const { signal, showLoading = true } = options ?? {};
+      if (showLoading) setParticipantsLoading(true);
+      try {
+        const response = await getEventParticipants(eventId, signal);
+        setParticipants(response);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Erro ao carregar participantes do evento.');
+        }
+      } finally {
+        if (showLoading) setParticipantsLoading(false);
+      }
+    },
+    [eventId]
+  );
+
+  const loadProjects = React.useCallback(
+    async (options?: { signal?: AbortSignal; showLoading?: boolean }) => {
+      const { signal, showLoading = true } = options ?? {};
+      if (showLoading) setProjectsLoading(true);
+      try {
+        const response = await getEventProjects(eventId, signal);
+        setProjects(response);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Erro ao carregar projetos do evento.');
+        }
+      } finally {
+        if (showLoading) setProjectsLoading(false);
+      }
+    },
+    [eventId]
+  );
+
+  const refreshAll = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await loadEventDetails();
+      await Promise.all([
+        loadParticipants({ showLoading: false }),
+        loadProjects({ showLoading: false }),
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadEventDetails, loadParticipants, loadProjects]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        await loadEventDetails(controller.signal);
+        await Promise.all([
+          loadParticipants({ signal: controller.signal, showLoading: false }),
+          loadProjects({ signal: controller.signal, showLoading: false }),
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [eventId, loadEventDetails, loadParticipants, loadProjects]);
+
+  React.useEffect(() => {
+    setSelectedParticipants((prev) =>
+      prev.filter((participantId) =>
+        participants.some((participant) => participant.id === participantId)
+      )
+    );
+  }, [participants]);
+
+  const handleApproveParticipant = async (participantId: string) => {
+    setActionError(null);
+    try {
+      await approveParticipant(eventId, participantId);
+      setParticipants((prev) =>
+        prev.map((participant) =>
+          participant.id === participantId ? { ...participant, status: 'approved' } : participant
+        )
+      );
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Não foi possível aprovar o participante.');
+      }
+    }
   };
 
-  const handleApproveParticipant = (participantId: string) => {
-    // TODO: POST /api/events/:eventId/participants/:participantId/approve
-    setParticipants(participants.map(p =>
-      p.id === participantId ? { ...p, status: 'approved' } : p
-    ));
+  const handleRejectParticipant = async (participantId: string) => {
+    setActionError(null);
+    try {
+      await rejectParticipant(eventId, participantId);
+      setParticipants((prev) =>
+        prev.map((participant) =>
+          participant.id === participantId ? { ...participant, status: 'rejected' } : participant
+        )
+      );
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Não foi possível rejeitar o participante.');
+      }
+    }
   };
 
-  const handleRejectParticipant = (participantId: string) => {
-    // TODO: POST /api/events/:eventId/participants/:participantId/reject
-    setParticipants(participants.map(p =>
-      p.id === participantId ? { ...p, status: 'rejected' } : p
-    ));
+  const handleApproveProject = async (projectId: string) => {
+    setActionError(null);
+    try {
+      await updateProjectStatus(eventId, projectId, 'approved');
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === projectId ? { ...project, status: 'approved' } : project
+        )
+      );
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Erro ao aprovar o projeto.');
+      }
+    }
   };
 
-  const handleApproveProject = (projectId: string) => {
-    // TODO: POST /api/events/:eventId/projects/:projectId/approve
-    setProjects(projects.map(p =>
-      p.id === projectId ? { ...p, status: 'approved' } : p
-    ));
+  const handleRejectProject = async (projectId: string) => {
+    setActionError(null);
+    const reason = typeof window !== 'undefined'
+      ? window.prompt('Informe o motivo da rejeição:')
+      : null;
+    if (!reason) {
+      return;
+    }
+
+    try {
+      await updateProjectStatus(eventId, projectId, 'rejected', reason);
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === projectId ? { ...project, status: 'rejected' } : project
+        )
+      );
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Erro ao rejeitar o projeto.');
+      }
+    }
   };
 
-  const handleRejectProject = (projectId: string) => {
-    // TODO: POST /api/events/:eventId/projects/:projectId/reject
-    setProjects(projects.map(p =>
-      p.id === projectId ? { ...p, status: 'rejected' } : p
-    ));
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || selectedParticipants.length === 0) return;
+    setActionError(null);
+    setMessageLoading(true);
+
+    try {
+      await sendEventMessage(eventId, {
+        message: messageText.trim(),
+        recipients: selectedParticipants,
+      });
+      setMessageText('');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Falha ao enviar a mensagem.');
+      }
+    } finally {
+      setMessageLoading(false);
+    }
   };
 
-  const handleSendMessage = () => {
-    if (!messageText.trim()) return;
-
-    // TODO: POST /api/events/:eventId/messages
-    // Body: { message: messageText, recipients: selectedParticipants }
-    console.log('Sending message:', messageText, 'to:', selectedParticipants);
-    setMessageText('');
+  const handleDuplicateEvent = async () => {
+    setDuplicateLoading(true);
+    setActionError(null);
+    try {
+      const duplicated = await duplicateEvent(eventId);
+      setEventDetails(duplicated);
+      onEdit(duplicated);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Erro ao duplicar o evento.');
+      }
+    } finally {
+      setDuplicateLoading(false);
+    }
   };
 
-  const handleDuplicateEvent = () => {
-    // TODO: POST /api/events/:eventId/duplicate
-    console.log('Duplicating event:', eventId);
+  const handleExportData = async (type: 'participants' | 'projects') => {
+    setDownloadType(type);
+    setActionError(null);
+    try {
+      const blob = await exportEventData(eventId, type);
+      if (typeof window !== 'undefined') {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${eventDetails?.name || 'evento'}-${type}.csv`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setActionError(err.message);
+      } else if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError('Não foi possível exportar os dados.');
+      }
+    } finally {
+      setDownloadType(null);
+    }
   };
 
-  const handleExportData = (type: 'participants' | 'projects') => {
-    // TODO: GET /api/events/:eventId/export/:type
-    console.log('Exporting:', type);
-  };
+  if (isLoadingInitial) {
+    return (
+      <div className="min-h-screen page-background pb-24">
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          <GlassCard elevation="medium" className="flex flex-col items-center gap-4 py-16">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <div className="text-center space-y-1">
+              <h3>Carregando detalhes do evento</h3>
+              <p className="text-muted-foreground">Aguarde enquanto buscamos as informações mais recentes.</p>
+            </div>
+          </GlassCard>
+        </div>
+      </div>
+    );
+  }
 
   const filteredParticipants = participants.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -205,25 +411,46 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 <ArrowLeft className="h-4 w-4" />
               </GlassButton>
               <div>
-                <h3>{eventData?.name || 'Carregando...'}</h3>
-                <small className="text-muted-foreground">{eventData?.theme}</small>
+                <h3>{currentEvent?.name || 'Evento não encontrado'}</h3>
+                <small className="text-muted-foreground">
+                  {currentEvent?.theme || 'Sem temática definida'}
+                </small>
               </div>
             </div>
             <div className="flex gap-2">
-              <GlassButton variant="ghost" size="sm" onClick={handleDuplicateEvent}>
-                <Copy className="h-4 w-4" />
+              <GlassButton
+                variant="ghost"
+                size="sm"
+                onClick={handleDuplicateEvent}
+                disabled={!currentEvent || duplicateLoading}
+              >
+                {duplicateLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
                 <span className="hidden sm:inline">Duplicar</span>
               </GlassButton>
-              <GlassButton variant="ghost" size="sm" onClick={onEdit}>
+              <GlassButton
+                variant="ghost"
+                size="sm"
+                onClick={() => currentEvent && onEdit(currentEvent)}
+                disabled={!currentEvent}
+              >
                 <Edit className="h-4 w-4" />
                 <span className="hidden sm:inline">Editar</span>
               </GlassButton>
-              <GlassButton variant="ghost" size="sm">
+              <GlassButton variant="ghost" size="sm" disabled={!currentEvent}>
                 <Share2 className="h-4 w-4" />
                 <span className="hidden sm:inline">Compartilhar</span>
               </GlassButton>
               {userRole === 'admin' && onDelete && (
-                <GlassButton variant="ghost" size="sm" onClick={onDelete}>
+                <GlassButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(eventId)}
+                  disabled={!currentEvent}
+                >
                   <Trash2 className="h-4 w-4 text-red-500" />
                 </GlassButton>
               )}
@@ -237,9 +464,9 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 <Users className="h-4 w-4 text-primary" />
                 <small className="text-muted-foreground">Participantes</small>
               </div>
-              <h3>{stats.totalParticipants}</h3>
+              <h3>{participantStats.totalParticipants}</h3>
               <small className="text-muted-foreground">
-                {stats.pending} pendentes
+                {participantStats.pending} pendentes
               </small>
             </div>
 
@@ -248,9 +475,9 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 <FolderKanban className="h-4 w-4 text-primary" />
                 <small className="text-muted-foreground">Projetos</small>
               </div>
-              <h3>{stats.totalProjects}</h3>
+              <h3>{participantStats.totalProjects}</h3>
               <small className="text-muted-foreground">
-                {stats.projectsPending} em análise
+                {participantStats.projectsPending} em análise
               </small>
             </div>
 
@@ -259,7 +486,7 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 <CheckCircle className="h-4 w-4 text-green-600" />
                 <small className="text-muted-foreground">Aprovados</small>
               </div>
-              <h3>{stats.approved}</h3>
+              <h3>{participantStats.approved}</h3>
             </div>
 
             <div className="glass-subtle rounded-lg p-3">
@@ -267,11 +494,28 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 <Clock className="h-4 w-4 text-orange-600" />
                 <small className="text-muted-foreground">Lista de Espera</small>
               </div>
-              <h3>{stats.waitlist}</h3>
+              <h3>{participantStats.waitlist}</h3>
             </div>
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 mt-4">
+          <GlassCard elevation="medium" className="border border-red-500/40 bg-red-500/5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-red-500">Não foi possível carregar todos os dados</h4>
+                <p className="text-muted-foreground">{error}</p>
+              </div>
+              <GlassButton variant="ghost" size="sm" onClick={refreshAll} disabled={loading}>
+                <Loader2 className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Tentar novamente
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </div>
+      )}
 
       {/* Tabs Content */}
       <div className="max-w-7xl mx-auto px-4 py-6">
@@ -295,6 +539,18 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
             </TabsTrigger>
           </TabsList>
 
+          {actionError && (
+            <GlassCard elevation="medium" className="border border-red-500/30 bg-red-500/5 mb-6">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-500" />
+                <div>
+                  <h4 className="text-red-500">Ação não concluída</h4>
+                  <p className="text-muted-foreground">{actionError}</p>
+                </div>
+              </div>
+            </GlassCard>
+          )}
+
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
             <GlassCard elevation="medium">
@@ -302,43 +558,65 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <p className="text-muted-foreground mb-2">Descrição</p>
-                  <p>{eventData?.description}</p>
+                  <p>{currentEvent?.description || 'Descrição ainda não informada.'}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground mb-2">Datas</p>
-                  <p>Início: {eventData?.startDate && new Date(eventData.startDate).toLocaleDateString('pt-BR')}</p>
-                  <p>Término: {eventData?.endDate && new Date(eventData.endDate).toLocaleDateString('pt-BR')}</p>
-                  <p>Inscrições até: {eventData?.registrationDeadline && new Date(eventData.registrationDeadline).toLocaleDateString('pt-BR')}</p>
+                  <p>
+                    Início:{' '}
+                    {currentEvent?.startDate
+                      ? new Date(currentEvent.startDate).toLocaleDateString('pt-BR')
+                      : 'não definido'}
+                  </p>
+                  <p>
+                    Término:{' '}
+                    {currentEvent?.endDate
+                      ? new Date(currentEvent.endDate).toLocaleDateString('pt-BR')
+                      : 'não definido'}
+                  </p>
+                  <p>
+                    Inscrições até:{' '}
+                    {currentEvent?.registrationDeadline
+                      ? new Date(currentEvent.registrationDeadline).toLocaleDateString('pt-BR')
+                      : 'não informado'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-muted-foreground mb-2">Localização</p>
-                  <Badge variant="outline" className="mb-2">{eventData?.locationType}</Badge>
-                  <p>{eventData?.location}</p>
+                  {currentEvent?.locationType && (
+                    <Badge variant="outline" className="mb-2">
+                      {currentEvent.locationType}
+                    </Badge>
+                  )}
+                  <p>{currentEvent?.location || 'Local não informado'}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground mb-2">Configurações</p>
-                  <p>Máx. participantes: {eventData?.maxParticipants}</p>
-                  <p>Tamanho equipe: {eventData?.minTeamSize}-{eventData?.maxTeamSize}</p>
-                  <p>Aprovação manual: {eventData?.requiresApproval ? 'Sim' : 'Não'}</p>
+                  <p>Máx. participantes: {currentEvent?.maxParticipants ?? '—'}</p>
+                  <p>
+                    Tamanho equipe: {currentEvent?.minTeamSize ?? '—'}-
+                    {currentEvent?.maxTeamSize ?? '—'}
+                  </p>
+                  <p>Aprovação manual: {currentEvent?.requiresApproval ? 'Sim' : 'Não'}</p>
                 </div>
               </div>
 
-              {eventData?.categories && eventData.categories.length > 0 && (
+              {currentEvent?.categories && currentEvent.categories.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border/50">
                   <p className="text-muted-foreground mb-2">Categorias</p>
                   <div className="flex flex-wrap gap-2">
-                    {eventData.categories.map(cat => (
+                    {currentEvent.categories.map(cat => (
                       <Badge key={cat}>{cat}</Badge>
                     ))}
                   </div>
                 </div>
               )}
 
-              {eventData?.prizes && eventData.prizes.length > 0 && (
+              {currentEvent?.prizes && currentEvent.prizes.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border/50">
                   <p className="text-muted-foreground mb-3">Prêmios</p>
                   <div className="space-y-2">
-                    {eventData.prizes.map((prize, i) => (
+                    {currentEvent.prizes.map((prize, i) => (
                       <div key={i} className="glass-subtle rounded-lg p-3">
                         <div className="flex items-center gap-2">
                           <Award className="h-4 w-4 text-primary" />
@@ -353,11 +631,11 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
               )}
             </GlassCard>
 
-            {eventData?.schedule && eventData.schedule.length > 0 && (
+            {currentEvent?.schedule && currentEvent.schedule.length > 0 && (
               <GlassCard elevation="medium">
                 <h4 className="mb-4">Cronograma</h4>
                 <div className="space-y-3">
-                  {eventData.schedule.map((item, i) => (
+                  {currentEvent.schedule.map((item, i) => (
                     <div key={i} className="glass-subtle rounded-lg p-4">
                       <div className="flex items-start gap-3">
                         <div className="glass rounded-lg p-2">
@@ -365,12 +643,13 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <h4>{item.title}</h4>
+                            <h4>{item.title || 'Atividade'}</h4>
                             <Badge variant="outline">
-                              {new Date(item.date).toLocaleDateString('pt-BR')} às {item.time}
+                              {item.date ? new Date(item.date).toLocaleDateString('pt-BR') : 'Data indefinida'}
+                              {item.time ? ` às ${item.time}` : ''}
                             </Badge>
                           </div>
-                          <p className="text-muted-foreground">{item.description}</p>
+                          <p className="text-muted-foreground">{item.description || 'Sem descrição cadastrada.'}</p>
                         </div>
                       </div>
                     </div>
@@ -386,11 +665,20 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
               <div className="flex items-center justify-between mb-4">
                 <h4>Gestão de Participantes</h4>
                 <div className="flex gap-2">
-                  <GlassButton variant="ghost" size="sm" onClick={() => handleExportData('participants')}>
-                    <Download className="h-4 w-4" />
+                  <GlassButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExportData('participants')}
+                    disabled={downloadType === 'participants'}
+                  >
+                    {downloadType === 'participants' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
                     Exportar
                   </GlassButton>
-                  <GlassButton variant="ghost" size="sm">
+                  <GlassButton variant="ghost" size="sm" disabled={!currentEvent}>
                     <UserPlus className="h-4 w-4" />
                     Convidar
                   </GlassButton>
@@ -429,16 +717,22 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
 
               {/* Participants List */}
               <div className="space-y-3">
-                {filteredParticipants.map(participant => (
-                  <div key={participant.id} className="glass-subtle rounded-lg p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3 flex-1">
-                        <Avatar className="h-10 w-10 bg-gradient-to-br from-teal-500 to-emerald-600">
-                          <span className="text-white">{participant.name[0]}</span>
+                {participantsLoading ? (
+                  <div className="glass-subtle rounded-lg p-6 flex items-center justify-center gap-3 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Carregando participantes...
+                  </div>
+                ) : filteredParticipants.length > 0 ? (
+                  filteredParticipants.map(participant => (
+                    <div key={participant.id} className="glass-subtle rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3 flex-1">
+                          <Avatar className="h-10 w-10 bg-gradient-to-br from-teal-500 to-emerald-600">
+                            <span className="text-white">{participant.name ? participant.name[0] : '?'}</span>
                         </Avatar>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <h4>{participant.name}</h4>
+                            <h4>{participant.name || 'Participante'}</h4>
                             {!participant.profileComplete && (
                               <Badge variant="outline" className="text-orange-600">
                                 <AlertCircle className="h-3 w-3 mr-1" />
@@ -446,14 +740,14 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                               </Badge>
                             )}
                           </div>
-                          <p className="text-muted-foreground mb-2">{participant.email}</p>
+                          <p className="text-muted-foreground mb-2">{participant.email || 'Email não informado'}</p>
                           <div className="flex flex-wrap gap-1">
-                            {participant.skills.map(skill => (
+                            {(participant.skills ?? []).map(skill => (
                               <Badge key={skill} variant="secondary">{skill}</Badge>
                             ))}
                           </div>
                           <small className="text-muted-foreground block mt-2">
-                            Inscrito em {new Date(participant.registeredAt).toLocaleDateString('pt-BR')}
+                            Inscrito em {participant.registeredAt ? new Date(participant.registeredAt).toLocaleDateString('pt-BR') : 'data não informada'}
                           </small>
                         </div>
                       </div>
@@ -500,12 +794,11 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                       </div>
                     </div>
                   </div>
-                ))}
-
-                {filteredParticipants.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">
-                    Nenhum participante encontrado
-                  </p>
+                  ))
+                ) : (
+                  <div className="glass-subtle rounded-lg p-6 text-center text-muted-foreground">
+                    Nenhum participante encontrado com os filtros atuais.
+                  </div>
                 )}
               </div>
             </GlassCard>
@@ -517,11 +810,20 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
               <div className="flex items-center justify-between mb-4">
                 <h4>Projetos Submetidos</h4>
                 <div className="flex gap-2">
-                  <GlassButton variant="ghost" size="sm" onClick={() => handleExportData('projects')}>
-                    <Download className="h-4 w-4" />
+                  <GlassButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExportData('projects')}
+                    disabled={downloadType === 'projects'}
+                  >
+                    {downloadType === 'projects' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
                     Exportar
                   </GlassButton>
-                  <GlassButton variant="ghost" size="sm">
+                  <GlassButton variant="ghost" size="sm" disabled>
                     <Filter className="h-4 w-4" />
                     Filtros
                   </GlassButton>
@@ -529,91 +831,100 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
               </div>
 
               <div className="space-y-4">
-                {projects.map(project => (
-                  <div key={project.id} className="glass-subtle rounded-lg p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h4>{project.name}</h4>
-                          <Badge variant="outline">{project.category}</Badge>
-                          {project.status === 'approved' && (
-                            <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
-                              Aprovado
-                            </Badge>
-                          )}
-                          {project.status === 'submitted' && (
-                            <Badge variant="outline" className="text-orange-600">
-                              Em Análise
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground mb-3">{project.description}</p>
-                        
-                        <div className="flex items-center gap-4 text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <Users className="h-4 w-4" />
-                            <small>{project.teamName} ({project.teamMembers} membros)</small>
+                {projectsLoading ? (
+                  <div className="glass-subtle rounded-lg p-6 flex items-center justify-center gap-3 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Carregando projetos...
+                  </div>
+                ) : projects.length > 0 ? (
+                  projects.map(project => (
+                    <div key={project.id} className="glass-subtle rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4>{project.title || (project as { name?: string }).name || 'Projeto'}</h4>
+                            <Badge variant="outline">{project.category}</Badge>
+                            {project.status === 'approved' && (
+                              <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
+                                Aprovado
+                              </Badge>
+                            )}
+                            {project.status === 'submitted' && (
+                              <Badge variant="outline" className="text-orange-600">
+                                Em Análise
+                              </Badge>
+                            )}
                           </div>
-                          {project.submittedAt && (
+                          <p className="text-muted-foreground mb-3">
+                            {project.description || 'Descrição não informada.'}
+                          </p>
+
+                          <div className="flex items-center gap-4 text-muted-foreground">
                             <div className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              <small>{new Date(project.submittedAt).toLocaleDateString('pt-BR')}</small>
+                              <Users className="h-4 w-4" />
+                              <small>
+                                {project.teamName || 'Equipe'} ({project.teamMembers ?? project.members ?? 0} membros)
+                              </small>
                             </div>
+                            {project.submittedAt && (
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-4 w-4" />
+                                <small>{new Date(project.submittedAt).toLocaleDateString('pt-BR')}</small>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <small className="text-muted-foreground">Progresso</small>
+                              <small className="text-primary">{clampProgress(project.progress)}%</small>
+                            </div>
+                            <div className="h-2 glass-subtle rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-teal-500 to-emerald-600 transition-all"
+                                style={{ width: `${clampProgress(project.progress)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 ml-4">
+                          {project.status === 'submitted' && (
+                            <>
+                              <GlassButton
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleApproveProject(project.id)}
+                              >
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                Aprovar
+                              </GlassButton>
+                              <GlassButton
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRejectProject(project.id)}
+                              >
+                                <XCircle className="h-4 w-4 text-red-600" />
+                                Rejeitar
+                              </GlassButton>
+                            </>
                           )}
+                          <GlassButton variant="ghost" size="sm">
+                            <Eye className="h-4 w-4" />
+                            Ver Detalhes
+                          </GlassButton>
+                          <GlassButton variant="ghost" size="sm">
+                            <MessageSquare className="h-4 w-4" />
+                            Mensagem
+                          </GlassButton>
                         </div>
-
-                        <div className="mt-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <small className="text-muted-foreground">Progresso</small>
-                            <small className="text-primary">{project.progress}%</small>
-                          </div>
-                          <div className="h-2 glass-subtle rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-teal-500 to-emerald-600 transition-all"
-                              style={{ width: `${project.progress}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-2 ml-4">
-                        {project.status === 'submitted' && (
-                          <>
-                            <GlassButton
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleApproveProject(project.id)}
-                            >
-                              <CheckCircle className="h-4 w-4 text-green-600" />
-                              Aprovar
-                            </GlassButton>
-                            <GlassButton
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRejectProject(project.id)}
-                            >
-                              <XCircle className="h-4 w-4 text-red-600" />
-                              Rejeitar
-                            </GlassButton>
-                          </>
-                        )}
-                        <GlassButton variant="ghost" size="sm">
-                          <Eye className="h-4 w-4" />
-                          Ver Detalhes
-                        </GlassButton>
-                        <GlassButton variant="ghost" size="sm">
-                          <MessageSquare className="h-4 w-4" />
-                          Mensagem
-                        </GlassButton>
                       </div>
                     </div>
+                  ))
+                ) : (
+                  <div className="glass-subtle rounded-lg p-6 text-center text-muted-foreground">
+                    Nenhum projeto cadastrado para este evento.
                   </div>
-                ))}
-
-                {projects.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">
-                    Nenhum projeto submetido ainda
-                  </p>
                 )}
               </div>
             </GlassCard>
@@ -628,15 +939,15 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total:</span>
-                    <span>{stats.totalProjects}</span>
+                    <span>{participantStats.totalProjects}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Aprovados:</span>
-                    <span className="text-green-600">{stats.projectsApproved}</span>
+                    <span className="text-green-600">{participantStats.projectsApproved}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Em análise:</span>
-                    <span className="text-orange-600">{stats.projectsPending}</span>
+                    <span className="text-orange-600">{participantStats.projectsPending}</span>
                   </div>
                 </div>
               </GlassCard>
@@ -647,9 +958,11 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                   <h4>Categorias Populares</h4>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {Array.from(new Set(projects.map(p => p.category))).map(cat => (
-                    <Badge key={cat}>{cat}</Badge>
-                  ))}
+                  {Array.from(new Set(projects.map(p => p.category)))
+                    .filter(Boolean)
+                    .map((cat) => (
+                      <Badge key={cat as string}>{cat}</Badge>
+                    ))}
                 </div>
               </GlassCard>
 
@@ -693,13 +1006,13 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                       onClick={() => setSelectedParticipants(participants.filter(p => p.status === 'approved').map(p => p.id))}
                       className="px-4 py-2 rounded-lg glass-subtle hover:glass"
                     >
-                      Apenas Aprovados ({stats.approved})
+                      Apenas Aprovados ({participantStats.approved})
                     </button>
                     <button
                       onClick={() => setSelectedParticipants(participants.filter(p => p.status === 'pending').map(p => p.id))}
                       className="px-4 py-2 rounded-lg glass-subtle hover:glass"
                     >
-                      Pendentes ({stats.pending})
+                      Pendentes ({participantStats.pending})
                     </button>
                   </div>
                   <small className="text-muted-foreground">
@@ -720,11 +1033,19 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
                 </div>
 
                 <div className="flex gap-2">
-                  <GlassButton variant="filled" onClick={handleSendMessage} disabled={!messageText.trim() || selectedParticipants.length === 0}>
-                    <Send className="h-4 w-4" />
+                  <GlassButton
+                    variant="filled"
+                    onClick={handleSendMessage}
+                    disabled={!messageText.trim() || selectedParticipants.length === 0 || messageLoading}
+                  >
+                    {messageLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
                     Enviar Mensagem
                   </GlassButton>
-                  <GlassButton variant="ghost">
+                  <GlassButton variant="ghost" disabled>
                     <Mail className="h-4 w-4" />
                     Enviar como Email
                   </GlassButton>

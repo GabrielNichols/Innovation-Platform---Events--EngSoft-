@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import signal
 import subprocess
 import sys
@@ -9,13 +10,20 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 
+def _env_port(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
 SERVICE_DEFINITIONS: List[Tuple[str, str, int]] = [
-    ("auth-service", "auth-service", 8001),
-    ("events-service", "events-service", 8002),
-    ("projects-service", "projects-service", 8003),
-    ("participants-service", "participants-service", 8004),
-    ("notifications-service", "notifications-service", 8005),
-    ("gateway", "gateway", 8000),
+    ("auth-service", "auth-service", _env_port("AUTH_SERVICE_PORT", 8001)),
+    ("events-service", "events-service", _env_port("EVENTS_SERVICE_PORT", 8002)),
+    ("projects-service", "projects-service", _env_port("PROJECTS_SERVICE_PORT", 8003)),
+    ("participants-service", "participants-service", _env_port("PARTICIPANTS_SERVICE_PORT", 8004)),
+    ("notifications-service", "notifications-service", _env_port("NOTIFICATIONS_SERVICE_PORT", 8005)),
+    ("gateway", "gateway", _env_port("GATEWAY_PORT", 8080)),
 ]
 
 
@@ -27,6 +35,24 @@ def _build_environment(backend_root: Path) -> Dict[str, str]:
         env["PYTHONPATH"] = os.pathsep.join([backend_path, existing])
     else:
         env["PYTHONPATH"] = backend_path
+    # Default service URLs for gateway if not provided
+    env.setdefault("AUTH_SERVICE_URL", f"http://localhost:{_env_port('AUTH_SERVICE_PORT', 8001)}")
+    env.setdefault("EVENTS_SERVICE_URL", f"http://localhost:{_env_port('EVENTS_SERVICE_PORT', 8002)}")
+    env.setdefault("PROJECTS_SERVICE_URL", f"http://localhost:{_env_port('PROJECTS_SERVICE_PORT', 8003)}")
+    env.setdefault("PARTICIPANTS_SERVICE_URL", f"http://localhost:{_env_port('PARTICIPANTS_SERVICE_PORT', 8004)}")
+    env.setdefault("NOTIFICATIONS_SERVICE_URL", f"http://localhost:{_env_port('NOTIFICATIONS_SERVICE_PORT', 8005)}")
+    # Allow typical local frontend origins for CORS
+    env.setdefault(
+        "ALLOW_ORIGINS",
+        json.dumps([
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://127.0.0.1:5173",
+        ]),
+    )
     return env
 
 

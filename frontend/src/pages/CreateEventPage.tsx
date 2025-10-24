@@ -4,7 +4,7 @@ import { GlassButton } from '../components/GlassButton';
 import { GlassInput } from '../components/GlassInput';
 import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
-import { 
+import {
   ArrowLeft, 
   Calendar, 
   MapPin, 
@@ -18,11 +18,22 @@ import {
   Globe,
   Link as LinkIcon
 } from 'lucide-react';
+import {
+  createEvent,
+  updateEvent,
+  type Event,
+  type CreateEventPayload,
+  type Prize,
+  type EventRestriction,
+  type ScheduleItem,
+  type SocialLink,
+  ApiError,
+} from '../api/api';
 
 interface CreateEventPageProps {
-  onComplete: (eventData: EventFormData) => void;
+  onComplete: (event: Event) => void;
   onCancel: () => void;
-  eventToEdit?: EventFormData; // For editing existing event
+  eventToEdit?: Event; // For editing existing event
 }
 
 export interface EventFormData {
@@ -48,28 +59,43 @@ export interface EventFormData {
   isPublished: boolean;
 }
 
-interface Prize {
-  position: string;
-  description: string;
-  value?: string;
-}
+const toInputDate = (value?: string) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toISOString().substring(0, 10);
+};
 
-interface EventRestriction {
-  type: 'age' | 'experience' | 'location' | 'custom';
-  description: string;
-}
+const sanitizePrizes = (prizes: Prize[]): Prize[] =>
+  prizes
+    .map((prize, index) => ({
+      position: prize.position || `${index + 1}º Lugar`,
+      description: prize.description?.trim() || '',
+      value: prize.value?.trim() || undefined,
+    }))
+    .filter((prize) => prize.description || prize.value);
 
-interface ScheduleItem {
-  date: string;
-  time: string;
-  title: string;
-  description: string;
-}
+const sanitizeRestrictions = (restrictions: EventRestriction[]): EventRestriction[] =>
+  restrictions.filter((item) => item.description?.trim());
 
-interface SocialLink {
-  platform: string;
-  url: string;
-}
+const sanitizeSchedule = (schedule: ScheduleItem[]): ScheduleItem[] =>
+  schedule
+    .map((item) => ({
+      ...item,
+      title: item.title?.trim() || '',
+      description: item.description?.trim() || '',
+    }))
+    .filter((item) => item.date && item.time && item.title);
+
+const sanitizeSocialLinks = (links: SocialLink[]): SocialLink[] =>
+  links
+    .map((link) => ({
+      platform: link.platform,
+      url: link.url?.trim() || '',
+    }))
+    .filter((link) => link.url);
 
 export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEventPageProps) {
   const [step, setStep] = React.useState<'basic' | 'details' | 'rules' | 'schedule' | 'review'>('basic');
@@ -105,6 +131,37 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
   const [isPublished, setIsPublished] = React.useState(eventToEdit?.isPublished || false);
 
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = React.useState(false);
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
+
+  const isEditing = React.useMemo(() => Boolean(eventToEdit?.id), [eventToEdit?.id]);
+
+  React.useEffect(() => {
+    if (!eventToEdit) return;
+    
+    setName(eventToEdit.name || '');
+    setDescription(eventToEdit.description || '');
+    setTheme(eventToEdit.theme || '');
+    setStartDate(toInputDate(eventToEdit.startDate));
+    setEndDate(toInputDate(eventToEdit.endDate));
+    setRegistrationDeadline(toInputDate(eventToEdit.registrationDeadline));
+    setLocation(eventToEdit.location || '');
+    setLocationType(eventToEdit.locationType || 'online');
+    setMaxParticipants(eventToEdit.maxParticipants || 100);
+    setMinTeamSize(eventToEdit.minTeamSize || 1);
+    setMaxTeamSize(eventToEdit.maxTeamSize || 5);
+    setCategories(eventToEdit.categories || []);
+    setPrizes(eventToEdit.prizes || []);
+    setRestrictions(eventToEdit.restrictions || []);
+    setSchedule((eventToEdit.schedule || []).map((item) => ({
+      ...item,
+      date: toInputDate(item.date),
+    })));
+    setSocialLinks(eventToEdit.socialLinks || []);
+    setRequiresApproval(eventToEdit.requiresApproval || false);
+    setAllowsWaitlist(eventToEdit.allowsWaitlist ?? true);
+    setIsPublished(eventToEdit.isPublished || eventToEdit.status === 'published' || eventToEdit.status === 'active');
+  }, [eventToEdit]);
 
   const validateBasicInfo = () => {
     const newErrors: Record<string, string> = {};
@@ -192,33 +249,55 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
     setSocialLinks(socialLinks.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = () => {
-    const eventData: EventFormData = {
-      id: eventToEdit?.id,
-      name,
-      description,
-      theme,
+  const handleSubmit = async () => {
+    const isBasicValid = validateBasicInfo();
+    if (!isBasicValid) {
+      setStep('basic');
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    const payload: CreateEventPayload = {
+      name: name.trim(),
+      description: description.trim(),
+      theme: theme.trim() || undefined,
       startDate,
       endDate,
-      registrationDeadline,
-      location,
+      registrationDeadline: registrationDeadline || undefined,
+      location: location.trim(),
       locationType,
       maxParticipants,
       minTeamSize,
       maxTeamSize,
       categories,
-      prizes,
-      restrictions,
-      schedule,
-      socialLinks,
+      prizes: sanitizePrizes(prizes),
+      restrictions: sanitizeRestrictions(restrictions),
+      schedule: sanitizeSchedule(schedule),
+      socialLinks: sanitizeSocialLinks(socialLinks),
       requiresApproval,
       allowsWaitlist,
       isPublished,
     };
 
-    // TODO: Send to backend
-    // POST /api/events (create) or PUT /api/events/:id (edit)
-    onComplete(eventData);
+    try {
+      const result = isEditing && eventToEdit?.id
+        ? await updateEvent(eventToEdit.id, payload)
+        : await createEvent(payload);
+
+      onComplete(result);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setSubmitError(error.message);
+      } else if (error instanceof Error) {
+        setSubmitError(error.message);
+      } else {
+        setSubmitError('Erro inesperado ao salvar o evento.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const renderStepIndicator = () => {
@@ -276,13 +355,20 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
               </div>
             </div>
             <div className="flex gap-2">
-              <GlassButton variant="ghost" size="sm">
+              <GlassButton variant="ghost" size="sm" disabled={submitting}>
                 <Eye className="h-4 w-4" />
                 <span className="hidden sm:inline">Pré-visualizar</span>
               </GlassButton>
-              <GlassButton variant="ghost" size="sm">
+              <GlassButton
+                variant="ghost"
+                size="sm"
+                onClick={handleSubmit}
+                disabled={submitting}
+              >
                 <Save className="h-4 w-4" />
-                <span className="hidden sm:inline">Salvar Rascunho</span>
+                <span className="hidden sm:inline">
+                  {submitting ? 'Salvando...' : 'Salvar Rascunho'}
+                </span>
               </GlassButton>
             </div>
           </div>
@@ -838,12 +924,22 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
               )}
             </GlassCard>
 
-            <div className="flex justify-between">
-              <GlassButton variant="ghost" onClick={() => setStep('schedule')}>
+            {submitError && (
+              <div className="glass-subtle rounded-lg border border-red-500/40 p-4 text-sm text-red-500">
+                {submitError}
+              </div>
+            )}
+
+            <div className="flex justify-between items-center gap-3">
+              <GlassButton variant="ghost" onClick={() => setStep('schedule')} disabled={submitting}>
                 Voltar
               </GlassButton>
-              <GlassButton variant="filled" onClick={handleSubmit}>
-                {isPublished ? '🚀 Publicar Evento' : '💾 Salvar Rascunho'}
+              <GlassButton variant="filled" onClick={handleSubmit} disabled={submitting}>
+                {submitting
+                  ? 'Salvando...'
+                  : isPublished
+                    ? '🚀 Publicar Evento'
+                    : '💾 Salvar Rascunho'}
               </GlassButton>
             </div>
           </div>

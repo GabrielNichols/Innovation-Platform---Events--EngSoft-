@@ -7,7 +7,12 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import GatewaySettings
+# Import works differently when running tests (importing package `gateway`)
+# versus running uvicorn from within the service directory (top-level modules).
+try:
+    from gateway.config import GatewaySettings  # type: ignore
+except Exception:  # pragma: no cover - fallback for runtime within service dir
+    from config import GatewaySettings  # type: ignore
 
 logger = logging.getLogger("gateway")
 
@@ -26,6 +31,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
 
     @app.middleware("http")
