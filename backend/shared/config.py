@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic import Field
 
@@ -24,6 +25,13 @@ class Settings(_BaseSettings):
     service_name: str = Field("service", env="SERVICE_NAME")
     log_level: str = Field("INFO", env="LOG_LEVEL")
     port: int = Field(8000, env="PORT")
+
+    # Development auth bypass (for local frontend without real login)
+    dev_auth_enabled: bool = Field(False, env="DEV_AUTH_ENABLED")
+    dev_user_id: str = Field("dev-user", env="DEV_USER_ID")
+    dev_user_role: str = Field("admin", env="DEV_USER_ROLE")
+    dev_user_name: Optional[str] = Field("Dev User", env="DEV_USER_NAME")
+    dev_user_email: Optional[str] = Field("dev@example.com", env="DEV_USER_EMAIL")
 
     if _USES_PYDANTIC_V2:
         # Pydantic v2 settings

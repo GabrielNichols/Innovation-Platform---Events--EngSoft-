@@ -24,8 +24,38 @@ async def get_current_user(
     authorization: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
 ) -> User:
-    token = _extract_bearer_token(authorization)
-    payload = decode_jwt(token, settings)
+    # Development bypass: allow a mock user when enabled
+    if settings.dev_auth_enabled and not authorization:
+        return User(
+            id=settings.dev_user_id,
+            role=UserRole(settings.dev_user_role),
+            email=settings.dev_user_email,
+            name=settings.dev_user_name,
+        )
+
+    try:
+        token = _extract_bearer_token(authorization)
+    except UnauthorizedError:
+        if settings.dev_auth_enabled:
+            return User(
+                id=settings.dev_user_id,
+                role=UserRole(settings.dev_user_role),
+                email=settings.dev_user_email,
+                name=settings.dev_user_name,
+            )
+        raise
+
+    try:
+        payload = decode_jwt(token, settings)
+    except UnauthorizedError:
+        if settings.dev_auth_enabled:
+            return User(
+                id=settings.dev_user_id,
+                role=UserRole(settings.dev_user_role),
+                email=settings.dev_user_email,
+                name=settings.dev_user_name,
+            )
+        raise
 
     try:
         role = payload.get("role")

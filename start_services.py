@@ -53,6 +53,8 @@ def _build_environment(backend_root: Path) -> Dict[str, str]:
             "http://127.0.0.1:5173",
         ]),
     )
+    # Enable dev auth bypass for local testing unless explicitly disabled
+    env.setdefault("DEV_AUTH_ENABLED", "true")
     return env
 
 
