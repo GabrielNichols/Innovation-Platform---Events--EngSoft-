@@ -36,8 +36,8 @@ jobs:
         with:
           appSourcePath: ${{ github.workspace }}/backend/gateway
           registryUrl: innovationplatformacr.azurecr.io
-          registryUsername: ${{ secrets.GATEWAY_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.GATEWAY_REGISTRY_PASSWORD }}
+          registryUsername: ${{ secrets.ACR_USERNAME }}
+          registryPassword: ${{ secrets.ACR_PASSWORD }}
           containerAppName: gateway
           resourceGroup: innovation-platform-rg
           imageToBuild: innovationplatformacr.azurecr.io/gateway:${{ github.sha }}

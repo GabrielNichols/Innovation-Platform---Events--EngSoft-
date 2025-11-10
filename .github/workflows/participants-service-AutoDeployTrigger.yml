@@ -36,8 +36,8 @@ jobs:
         with:
           appSourcePath: ${{ github.workspace }}/backend/participants-service
           registryUrl: innovationplatformacr.azurecr.io
-          registryUsername: ${{ secrets.PARTICIPANTSSERVICE_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.PARTICIPANTSSERVICE_REGISTRY_PASSWORD }}
+          registryUsername: ${{ secrets.ACR_USERNAME }}
+          registryPassword: ${{ secrets.ACR_PASSWORD }}
           containerAppName: participants-service
           resourceGroup: innovation-platform-rg
           imageToBuild: innovationplatformacr.azurecr.io/participants-service:${{ github.sha }}

@@ -36,8 +36,8 @@ jobs:
         with:
           appSourcePath: ${{ github.workspace }}/backend/notifications-service
           registryUrl: innovationplatformacr.azurecr.io
-          registryUsername: ${{ secrets.NOTIFICATIONSSERVICE_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.NOTIFICATIONSSERVICE_REGISTRY_PASSWORD }}
+          registryUsername: ${{ secrets.ACR_USERNAME }}
+          registryPassword: ${{ secrets.ACR_PASSWORD }}
           containerAppName: notifications-service
           resourceGroup: innovation-platform-rg
           imageToBuild: innovationplatformacr.azurecr.io/notifications-service:${{ github.sha }}

@@ -36,8 +36,8 @@ jobs:
         with:
           appSourcePath: ${{ github.workspace }}/backend/events-service
           registryUrl: innovationplatformacr.azurecr.io
-          registryUsername: ${{ secrets.EVENTSSERVICE_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.EVENTSSERVICE_REGISTRY_PASSWORD }}
+          registryUsername: ${{ secrets.ACR_USERNAME }}
+          registryPassword: ${{ secrets.ACR_PASSWORD }}
           containerAppName: events-service
           resourceGroup: innovation-platform-rg
           imageToBuild: innovationplatformacr.azurecr.io/events-service:${{ github.sha }}
