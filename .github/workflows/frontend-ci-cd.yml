@@ -88,6 +88,6 @@ jobs:
         action: "upload"
         app_location: "frontend"
         api_location: ""
-        output_location: "build"
+        output_location: "frontend/build"
         skip_app_build: true
         production_branch: "main"
