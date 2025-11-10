@@ -5,6 +5,20 @@
   },
   "routes": [
     {
+      "route": "/assets/*.js",
+      "headers": {
+        "Content-Type": "application/javascript",
+        "cache-control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "route": "/assets/*.css",
+      "headers": {
+        "Content-Type": "text/css",
+        "cache-control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
       "route": "/assets/*",
       "headers": {
         "cache-control": "public, max-age=31536000, immutable"

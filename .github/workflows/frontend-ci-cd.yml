@@ -80,6 +80,11 @@ jobs:
         cd frontend
         npm run build
 
+    - name: Prepare deployment files
+      run: |
+        # Copy Static Web App config to build directory
+        cp frontend/staticwebapp.config.json frontend/build/
+
     - name: Deploy to Static Web App
       uses: azure/static-web-apps-deploy@v1
       with:
@@ -88,6 +93,6 @@ jobs:
         action: "upload"
         app_location: "frontend"
         api_location: ""
-        output_location: "frontend/build"
+        output_location: "build"
         skip_app_build: true
         production_branch: "main"
