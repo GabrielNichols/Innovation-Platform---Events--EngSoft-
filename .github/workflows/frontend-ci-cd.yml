@@ -55,27 +55,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    # Azure login not needed for Static Web Apps deployment
+    # The deployment token handles authentication
 
-    - name: Get API Gateway URL
-      id: api-url
+    - name: Set API Gateway URL
       run: |
-        # Get the gateway service URL from Azure Container Apps
-        GATEWAY_URL=$(az containerapp show \
-          --name gateway \
-          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-          --query "properties.configuration.ingress.fqdn" -o tsv)
-        echo "api_url=https://$GATEWAY_URL/api" >> $GITHUB_OUTPUT
+        # Hardcoded gateway URL for now
+        echo "VITE_API_BASE_URL=https://gateway.mangorock-348e27b8.eastus2.azurecontainerapps.io/api" >> $GITHUB_ENV
 
     - name: Build with environment variables
       run: |
         cd frontend
-        echo "VITE_API_BASE_URL=${{ steps.api-url.outputs.api_url }}" >> .env.production
         npm run build
 
     - name: Deploy to Static Web App
