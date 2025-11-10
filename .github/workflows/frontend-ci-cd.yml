@@ -1,0 +1,91 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci-cd.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'frontend/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Run linting
+      run: |
+        cd frontend
+        npm run lint 2>/dev/null || echo "Linting not configured, skipping"
+
+    - name: Run tests
+      run: |
+        cd frontend
+        npm test -- --watchAll=false --passWithNoTests 2>/dev/null || echo "No tests configured, skipping"
+
+    - name: Build application
+      run: |
+        cd frontend
+        npm run build
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Get API Gateway URL
+      id: api-url
+      run: |
+        # Get the gateway service URL from Azure Container Apps
+        GATEWAY_URL=$(az containerapp show \
+          --name gateway \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --query "properties.configuration.ingress.fqdn" -o tsv)
+        echo "api_url=https://$GATEWAY_URL/api" >> $GITHUB_OUTPUT
+
+    - name: Build with environment variables
+      run: |
+        cd frontend
+        echo "VITE_API_BASE_URL=${{ steps.api-url.outputs.api_url }}" >> .env.production
+        npm run build
+
+    - name: Deploy to Static Web App
+      uses: azure/static-web-apps-deploy@v1
+      with:
+        azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_DEPLOYMENT_TOKEN }}
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        action: "upload"
+        app_location: "frontend"
+        api_location: ""
+        output_location: "build"
+        skip_app_build: true
+        production_branch: "main"

@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Add backend directory to Python path for imports to work
+# This works both when running with pytest and directly
+backend_dir = Path(__file__).parent.parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient

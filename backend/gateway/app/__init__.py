@@ -43,7 +43,7 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         )
         return response
 
-    client = httpx.AsyncClient(timeout=30.0)
+    client = httpx.AsyncClient(timeout=30.0, verify=False)
 
     @app.on_event("shutdown")
     async def shutdown_client() -> None:

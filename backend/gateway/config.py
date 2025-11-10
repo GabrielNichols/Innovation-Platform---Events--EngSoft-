@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pydantic import Field
+from typing import List
 
 # Support both Pydantic v1 and v2
 try:  # Pydantic v2 path
@@ -22,17 +23,22 @@ class GatewaySettings(_BaseSettings):
     notifications_service_url: str = Field(
         "http://localhost:8005", env="NOTIFICATIONS_SERVICE_URL"
     )
-    allow_origins: list[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:5173",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001",
-            "http://127.0.0.1:5173",
-        ],
-        env="ALLOW_ORIGINS",
-    )
+    allow_origins_str: str = Field("", env="ALLOW_ORIGINS")
+
+    @property
+    def allow_origins(self) -> List[str]:
+        """Convert ALLOW_ORIGINS string to list"""
+        if self.allow_origins_str:
+            return [origin.strip() for origin in self.allow_origins_str.split(",") if origin.strip()]
+        else:
+            return [
+                "http://localhost:3000",
+                "http://localhost:3001",
+                "http://localhost:5173",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:3001",
+                "http://127.0.0.1:5173",
+            ]
 
     if _USES_PYDANTIC_V2:
         model_config = SettingsConfigDict(  # type: ignore[call-arg]

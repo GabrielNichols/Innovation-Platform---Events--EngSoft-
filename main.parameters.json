@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "jwtSecret": {
+      "value": "60722912b5b792982bc7f4adda44a9acb2630745c41f551adca615559b07da26"
+    }
+  }
+}

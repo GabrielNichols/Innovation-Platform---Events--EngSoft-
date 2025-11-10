@@ -3,7 +3,8 @@ version: "3.9"
 services:
   gateway:
     build:
-      context: .`n      dockerfile: ./gateway/Dockerfile
+      context: .
+      dockerfile: ./gateway/Dockerfile
     env_file:
       - ./gateway/.env
     ports:
@@ -17,7 +18,8 @@ services:
 
   auth:
     build:
-      context: .`n      dockerfile: ./auth-service/Dockerfile
+      context: .
+      dockerfile: ./auth-service/Dockerfile
     env_file:
       - ./auth-service/.env
     ports:
@@ -25,7 +27,8 @@ services:
 
   events:
     build:
-      context: .`n      dockerfile: ./events-service/Dockerfile
+      context: .
+      dockerfile: ./events-service/Dockerfile
     env_file:
       - ./events-service/.env
     volumes:
@@ -35,7 +38,8 @@ services:
 
   projects:
     build:
-      context: .`n      dockerfile: ./projects-service/Dockerfile
+      context: .
+      dockerfile: ./projects-service/Dockerfile
     env_file:
       - ./projects-service/.env
     volumes:
@@ -45,7 +49,8 @@ services:
 
   participants:
     build:
-      context: .`n      dockerfile: ./participants-service/Dockerfile
+      context: .
+      dockerfile: ./participants-service/Dockerfile
     env_file:
       - ./participants-service/.env
     volumes:
@@ -55,7 +60,8 @@ services:
 
   notifications:
     build:
-      context: .`n      dockerfile: ./notifications-service/Dockerfile
+      context: .
+      dockerfile: ./notifications-service/Dockerfile
     env_file:
       - ./notifications-service/.env
     volumes:
