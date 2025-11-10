@@ -68,10 +68,22 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
             logger.error("Proxy error for %s: %s", url, exc)
             raise HTTPException(status_code=503, detail="Service unavailable") from exc
 
+        # Prepare headers, excluding problematic ones
+        response_headers = {k: v for k, v in proxied.headers.items()
+                          if k.lower() not in ["content-length", "content-encoding", "transfer-encoding"]}
+
+        # Add CORS headers explicitly for proxied responses
+        response_headers.update({
+            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+        })
+
         return Response(
             content=proxied.content,
             status_code=proxied.status_code,
-            headers={k: v for k, v in proxied.headers.items() if k.lower() != "content-length"},
+            headers=response_headers,
         )
 
     def resolve_target(path: str) -> Optional[str]:
@@ -93,6 +105,19 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
     )
     async def gateway_route(path: str, request: Request) -> Response:
         full_path = f"/{path}" if path else ""
+
+        # Handle OPTIONS requests (CORS preflight)
+        if request.method == "OPTIONS":
+            return Response(
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+                }
+            )
+
         target = resolve_target(full_path)
         if not target:
             raise HTTPException(status_code=404, detail="Route not handled by gateway")

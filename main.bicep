@@ -215,6 +215,26 @@ resource authContainerApp 'Microsoft.App/containerApps@2022-06-01-preview' = {
               value: 'INFO'
             }
             {
+              name: 'DEV_AUTH_ENABLED'
+              value: 'true'
+            }
+            {
+              name: 'DEV_USER_ID'
+              value: 'mock-user-001'
+            }
+            {
+              name: 'DEV_USER_ROLE'
+              value: 'organizer'
+            }
+            {
+              name: 'DEV_USER_NAME'
+              value: 'John Doe'
+            }
+            {
+              name: 'DEV_USER_EMAIL'
+              value: 'dev@example.com'
+            }
+            {
               name: 'DEPLOYMENT_TIMESTAMP'
               value: deploymentTimestamp
             }
@@ -287,6 +307,26 @@ resource eventsContainerApp 'Microsoft.App/containerApps@2022-06-01-preview' = {
             {
               name: 'LOG_LEVEL'
               value: 'INFO'
+            }
+            {
+              name: 'DEV_AUTH_ENABLED'
+              value: 'true'
+            }
+            {
+              name: 'DEV_USER_ID'
+              value: 'mock-user-001'
+            }
+            {
+              name: 'DEV_USER_ROLE'
+              value: 'organizer'
+            }
+            {
+              name: 'DEV_USER_NAME'
+              value: 'John Doe'
+            }
+            {
+              name: 'DEV_USER_EMAIL'
+              value: 'dev@example.com'
             }
             {
               name: 'DEPLOYMENT_TIMESTAMP'
@@ -363,6 +403,26 @@ resource projectsContainerApp 'Microsoft.App/containerApps@2022-06-01-preview' =
               value: 'INFO'
             }
             {
+              name: 'DEV_AUTH_ENABLED'
+              value: 'true'
+            }
+            {
+              name: 'DEV_USER_ID'
+              value: 'mock-user-001'
+            }
+            {
+              name: 'DEV_USER_ROLE'
+              value: 'organizer'
+            }
+            {
+              name: 'DEV_USER_NAME'
+              value: 'John Doe'
+            }
+            {
+              name: 'DEV_USER_EMAIL'
+              value: 'dev@example.com'
+            }
+            {
               name: 'DEPLOYMENT_TIMESTAMP'
               value: deploymentTimestamp
             }
@@ -437,6 +497,26 @@ resource participantsContainerApp 'Microsoft.App/containerApps@2022-06-01-previe
               value: 'INFO'
             }
             {
+              name: 'DEV_AUTH_ENABLED'
+              value: 'true'
+            }
+            {
+              name: 'DEV_USER_ID'
+              value: 'mock-user-001'
+            }
+            {
+              name: 'DEV_USER_ROLE'
+              value: 'organizer'
+            }
+            {
+              name: 'DEV_USER_NAME'
+              value: 'John Doe'
+            }
+            {
+              name: 'DEV_USER_EMAIL'
+              value: 'dev@example.com'
+            }
+            {
               name: 'DEPLOYMENT_TIMESTAMP'
               value: deploymentTimestamp
             }
@@ -509,6 +589,26 @@ resource notificationsContainerApp 'Microsoft.App/containerApps@2022-06-01-previ
             {
               name: 'LOG_LEVEL'
               value: 'INFO'
+            }
+            {
+              name: 'DEV_AUTH_ENABLED'
+              value: 'true'
+            }
+            {
+              name: 'DEV_USER_ID'
+              value: 'mock-user-001'
+            }
+            {
+              name: 'DEV_USER_ROLE'
+              value: 'organizer'
+            }
+            {
+              name: 'DEV_USER_NAME'
+              value: 'John Doe'
+            }
+            {
+              name: 'DEV_USER_EMAIL'
+              value: 'dev@example.com'
             }
             {
               name: 'DEPLOYMENT_TIMESTAMP'
