@@ -134,6 +134,7 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
       try {
         const response = await getEventParticipants(eventId, signal);
         setParticipants(response);
+        setError(null); // Clear error on success
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           return;
@@ -159,6 +160,7 @@ export function EventDetailPage({ eventId, eventData, userRole, onBack, onEdit, 
       try {
         const response = await getEventProjects(eventId, signal);
         setProjects(response);
+        setError(null); // Clear error on success
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           return;

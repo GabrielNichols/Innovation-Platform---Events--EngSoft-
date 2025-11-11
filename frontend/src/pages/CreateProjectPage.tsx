@@ -35,6 +35,7 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
   const [eventsLoading, setEventsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
 
   const categories = ['Saúde', 'EdTech', 'Fintech', 'IoT', 'AI/ML', 'Blockchain', 'CleanTech', 'Smart City'];
   const skillsOptions = ['React', 'Python', 'Node.js', 'Machine Learning', 'UI/UX', 'IoT', 'Blockchain', 'Flutter', 'DevOps'];
@@ -81,13 +82,63 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
     };
   }, [defaultEventId]);
 
+  // Real-time validation functions matching backend rules
+  const validateField = React.useCallback((field: string, value: any): string | null => {
+    switch (field) {
+      case 'title':
+        if (!value || !value.trim()) return 'Título do projeto é obrigatório';
+        if (value.trim().length < 3) return 'Título deve ter pelo menos 3 caracteres';
+        if (value.trim().length > 200) return 'Título deve ter no máximo 200 caracteres';
+        return null;
+      
+      case 'description':
+        if (!value || !value.trim()) return 'Descrição é obrigatória';
+        if (value.trim().length < 10) return 'Descrição deve ter pelo menos 10 caracteres';
+        return null;
+      
+      case 'teamName':
+        if (!value || !value.trim()) return 'Nome da equipe é obrigatório';
+        if (value.trim().length < 3) return 'Nome da equipe deve ter pelo menos 3 caracteres';
+        return null;
+      
+      case 'category':
+        if (!value || !value.trim()) return 'Categoria é obrigatória';
+        if (value.trim().length < 2) return 'Categoria deve ter pelo menos 2 caracteres';
+        return null;
+      
+      case 'skills':
+        if (!value || value.length === 0) return 'Selecione pelo menos uma tecnologia';
+        return null;
+      
+      default:
+        return null;
+    }
+  }, []);
+
+  // Validate field on change - called immediately when user types
+  const handleFieldChange = React.useCallback((field: string, value: any) => {
+    const error = validateField(field, value);
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      if (error) {
+        newErrors[field] = error;
+      } else {
+        delete newErrors[field];
+      }
+      return newErrors;
+    });
+  }, []);
+
   const toggleSkill = (skill: string) => {
+    const newSkills = formData.skills.includes(skill)
+      ? formData.skills.filter(s => s !== skill)
+      : [...formData.skills, skill];
+    
     setFormData(prev => ({
       ...prev,
-      skills: prev.skills.includes(skill)
-        ? prev.skills.filter(s => s !== skill)
-        : [...prev.skills, skill],
+      skills: newSkills,
     }));
+    handleFieldChange('skills', newSkills);
   };
 
   const addPosition = (role: string) => {
@@ -106,6 +157,41 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
     }));
   };
 
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+    
+    const titleError = validateField('title', formData.title);
+    if (titleError) newErrors.title = titleError;
+    
+    const problemError = validateField('description', formData.problem);
+    if (problemError) newErrors.problem = problemError;
+    
+    const goalsError = validateField('description', formData.goals);
+    if (goalsError) newErrors.goals = goalsError;
+    
+    // Combined description validation
+    const description = [
+      formData.problem && `Problema: ${formData.problem}`,
+      formData.goals && `Objetivos: ${formData.goals}`,
+    ].filter(Boolean).join('\n\n');
+    const descriptionError = validateField('description', description);
+    if (descriptionError && !problemError && !goalsError) {
+      newErrors.description = 'A descrição completa (problema + objetivos) deve ter pelo menos 10 caracteres';
+    }
+    
+    const categoryError = validateField('category', formData.category);
+    if (categoryError) newErrors.category = categoryError;
+    
+    const teamNameError = validateField('teamName', formData.teamName);
+    if (teamNameError) newErrors.teamName = teamNameError;
+    
+    const skillsError = validateField('skills', formData.skills);
+    if (skillsError) newErrors.skills = skillsError;
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async () => {
     if (!selectedEventId) {
       setError('Selecione o evento em que seu projeto será submetido.');
@@ -113,9 +199,17 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
       return;
     }
 
-    if (!formData.teamName.trim()) {
-      setError('Informe um nome para a equipe.');
-      setStep(3);
+    // Validate all fields
+    if (!validateForm()) {
+      // Navigate to step with errors
+      if (errors.title || errors.problem || errors.goals || errors.category) {
+        setStep(1);
+      } else if (errors.skills) {
+        setStep(2);
+      } else if (errors.teamName) {
+        setStep(3);
+      }
+      setError('Por favor, corrija os erros no formulário antes de continuar.');
       return;
     }
 
@@ -130,20 +224,70 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
     ].filter(Boolean) as string[];
 
     const description = descriptionSegments.join('\n\n');
+    
+    // Calculate total members from positions
+    const totalMembers = formData.positions.reduce((sum, pos) => sum + pos.count, 0) || 1;
 
     try {
       const project = await createEventProject(selectedEventId, {
         title: formData.title.trim(),
         description,
-        category: formData.category || 'Outros',
+        category: formData.category.trim(),
         teamName: formData.teamName.trim(),
         skills: formData.skills,
+        members: totalMembers,
       });
 
       onComplete(project);
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.message);
+        // Handle 404 - event not found or not active
+        if (err.status === 404) {
+          setError('Evento não encontrado ou não está ativo. Verifique se o evento existe e está no status "active" para aceitar projetos.');
+          return;
+        }
+        
+        // Try to parse backend validation errors and map to form fields
+        if (err.status === 422 && err.details) {
+          const validationErrors: Record<string, string> = {};
+          
+          // FastAPI returns errors in 'detail' array format
+          if (Array.isArray(err.details)) {
+            err.details.forEach((errorDetail: any) => {
+              const fieldPath = errorDetail.loc?.slice(1) || [];
+              const fieldName = fieldPath[0];
+              
+              if (fieldName) {
+                // Map backend field names to frontend field names
+                const fieldMap: Record<string, string> = {
+                  'team_name': 'teamName',
+                };
+                
+                const frontendField = fieldMap[fieldName] || fieldName;
+                validationErrors[frontendField] = errorDetail.msg || 'Valor inválido';
+              }
+            });
+          }
+          
+          // If we found validation errors, merge them with existing errors
+          if (Object.keys(validationErrors).length > 0) {
+            setErrors(prev => ({ ...prev, ...validationErrors }));
+            setError('Por favor, corrija os erros no formulário antes de continuar.');
+            
+            // Navigate to step with errors
+            if (validationErrors.title || validationErrors.category || validationErrors.description) {
+              setStep(1);
+            } else if (validationErrors.skills) {
+              setStep(2);
+            } else if (validationErrors.teamName) {
+              setStep(3);
+            }
+          } else {
+            setError(err.message);
+          }
+        } else {
+          setError(err.message);
+        }
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
@@ -167,16 +311,25 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
   const canProceedStep1 = Boolean(
     selectedEventId &&
     formData.title.trim() &&
+    formData.title.trim().length >= 3 &&
     formData.problem.trim() &&
     formData.goals.trim() &&
-    formData.category
+    (formData.problem.trim() + formData.goals.trim()).length >= 10 &&
+    formData.category &&
+    formData.category.trim().length >= 2 &&
+    !errors.title &&
+    !errors.problem &&
+    !errors.goals &&
+    !errors.category
   );
 
-  const canProceedStep2 = formData.skills.length > 0;
+  const canProceedStep2 = formData.skills.length > 0 && !errors.skills;
   const canSubmit = Boolean(
     selectedEventId &&
     formData.positions.length > 0 &&
     formData.teamName.trim() &&
+    formData.teamName.trim().length >= 3 &&
+    !errors.teamName &&
     !submitting
   );
 
@@ -256,12 +409,23 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
                   )}
                 </div>
 
-                <GlassInput
-                  label="Título do Projeto"
-                  placeholder="Ex: Sistema de Diagnóstico Médico com IA"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                />
+                <div>
+                  <GlassInput
+                    label="Título do Projeto"
+                    placeholder="Ex: Sistema de Diagnóstico Médico com IA"
+                    value={formData.title}
+                    onChange={(e) => {
+                      setFormData({ ...formData, title: e.target.value });
+                      handleFieldChange('title', e.target.value);
+                    }}
+                  />
+                  {errors.title && <small className="text-red-500 mt-1 block">{errors.title}</small>}
+                  {!errors.title && formData.title && (
+                    <small className="text-muted-foreground mt-1 block">
+                      {formData.title.trim().length}/200 caracteres {formData.title.trim().length < 3 && '(mínimo 3)'}
+                    </small>
+                  )}
+                </div>
 
                 <div>
                   <label className="block mb-2 text-foreground/80">Categoria</label>
@@ -275,28 +439,61 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
                             ? 'bg-gradient-to-r from-teal-500 to-emerald-600 text-white border-transparent dark:from-teal-400 dark:to-emerald-500 dark:text-slate-900'
                             : 'hover:bg-primary/10'
                         }`}
-                        onClick={() => setFormData({ ...formData, category: formData.category === cat ? '' : cat })}
+                        onClick={() => {
+                          const newCategory = formData.category === cat ? '' : cat;
+                          setFormData({ ...formData, category: newCategory });
+                          handleFieldChange('category', newCategory);
+                        }}
                       >
                         {cat}
                       </Badge>
                     ))}
                   </div>
+                  {errors.category && <small className="text-red-500 mt-1 block">{errors.category}</small>}
+                  {!errors.category && !formData.category && (
+                    <small className="text-muted-foreground mt-1 block">
+                      Selecione uma categoria
+                    </small>
+                  )}
                 </div>
 
-                <GlassTextArea
-                  label="Qual problema você está resolvendo?"
-                  placeholder="Descreva o problema que seu projeto aborda..."
-                  value={formData.problem}
-                  onChange={(e) => setFormData({ ...formData, problem: e.target.value })}
-                  helperText="Seja claro sobre o impacto e relevância"
-                />
+                <div>
+                  <GlassTextArea
+                    label="Qual problema você está resolvendo?"
+                    placeholder="Descreva o problema que seu projeto aborda..."
+                    value={formData.problem}
+                    onChange={(e) => {
+                      setFormData({ ...formData, problem: e.target.value });
+                      // Validate combined description
+                      const combined = [
+                        e.target.value && `Problema: ${e.target.value}`,
+                        formData.goals && `Objetivos: ${formData.goals}`,
+                      ].filter(Boolean).join('\n\n');
+                      handleFieldChange('description', combined);
+                    }}
+                    helperText="Seja claro sobre o impacto e relevância"
+                  />
+                  {errors.problem && <small className="text-red-500 mt-1 block">{errors.problem}</small>}
+                  {errors.description && !errors.problem && <small className="text-red-500 mt-1 block">{errors.description}</small>}
+                </div>
 
-                <GlassTextArea
-                  label="Quais são os objetivos?"
-                  placeholder="Descreva os objetivos e resultados esperados..."
-                  value={formData.goals}
-                  onChange={(e) => setFormData({ ...formData, goals: e.target.value })}
-                />
+                <div>
+                  <GlassTextArea
+                    label="Quais são os objetivos?"
+                    placeholder="Descreva os objetivos e resultados esperados..."
+                    value={formData.goals}
+                    onChange={(e) => {
+                      setFormData({ ...formData, goals: e.target.value });
+                      // Validate combined description
+                      const combined = [
+                        formData.problem && `Problema: ${formData.problem}`,
+                        e.target.value && `Objetivos: ${e.target.value}`,
+                      ].filter(Boolean).join('\n\n');
+                      handleFieldChange('description', combined);
+                    }}
+                  />
+                  {errors.goals && <small className="text-red-500 mt-1 block">{errors.goals}</small>}
+                </div>
               </div>
             </GlassCard>
 
@@ -354,6 +551,12 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
                       </Badge>
                     ))}
                   </div>
+                  {errors.skills && <small className="text-red-500 mt-1 block">{errors.skills}</small>}
+                  {!errors.skills && formData.skills.length === 0 && (
+                    <small className="text-muted-foreground mt-1 block">
+                      Selecione pelo menos uma tecnologia
+                    </small>
+                  )}
                 </div>
 
                 <GlassTextArea
@@ -397,12 +600,23 @@ export function CreateProjectPage({ onComplete, onCancel, defaultEventId }: Crea
               <h3 className="mb-4">Vagas & Competências</h3>
 
               <div className="space-y-4 mb-6">
-                <GlassInput
-                  label="Nome da Equipe"
-                  placeholder="Ex: Equipe Alpha, Dream Team..."
-                  value={formData.teamName}
-                  onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
-                />
+                <div>
+                  <GlassInput
+                    label="Nome da Equipe"
+                    placeholder="Ex: Equipe Alpha, Dream Team..."
+                    value={formData.teamName}
+                    onChange={(e) => {
+                      setFormData({ ...formData, teamName: e.target.value });
+                      handleFieldChange('teamName', e.target.value);
+                    }}
+                  />
+                  {errors.teamName && <small className="text-red-500 mt-1 block">{errors.teamName}</small>}
+                  {!errors.teamName && formData.teamName && (
+                    <small className="text-muted-foreground mt-1 block">
+                      {formData.teamName.trim().length} caracteres {formData.teamName.trim().length < 3 && '(mínimo 3)'}
+                    </small>
+                  )}
+                </div>
 
                 <div>
                   <label className="block mb-2 text-foreground/80">

@@ -42,9 +42,10 @@ def _build_environment(backend_root: Path) -> Dict[str, str]:
     env.setdefault("PARTICIPANTS_SERVICE_URL", f"http://localhost:{_env_port('PARTICIPANTS_SERVICE_PORT', 8004)}")
     env.setdefault("NOTIFICATIONS_SERVICE_URL", f"http://localhost:{_env_port('NOTIFICATIONS_SERVICE_PORT', 8005)}")
     # Allow typical local frontend origins for CORS
+    # Gateway expects comma-separated string, not JSON array
     env.setdefault(
         "ALLOW_ORIGINS",
-        json.dumps([
+        ",".join([
             "http://localhost:3000",
             "http://localhost:3001",
             "http://localhost:5173",

@@ -73,8 +73,18 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
                           if k.lower() not in ["content-length", "content-encoding", "transfer-encoding"]}
 
         # Add CORS headers explicitly for proxied responses
+        # Use origin from request if it's in allowed origins
+        origin = request.headers.get("origin")
+        allowed_origins = settings.allow_origins
+        if origin and origin in allowed_origins:
+            cors_origin = origin
+        elif allowed_origins:
+            cors_origin = allowed_origins[0]
+        else:
+            cors_origin = "*"
+        
         response_headers.update({
-            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Origin": cors_origin,
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
@@ -107,11 +117,22 @@ def create_app(settings: GatewaySettings | None = None) -> FastAPI:
         full_path = f"/{path}" if path else ""
 
         # Handle OPTIONS requests (CORS preflight)
+        # Use origin from request if it's in allowed origins, otherwise use first allowed origin
         if request.method == "OPTIONS":
+            origin = request.headers.get("origin")
+            allowed_origins = settings.allow_origins
+            # If origin is in allowed list, use it; otherwise use first allowed origin
+            if origin and origin in allowed_origins:
+                cors_origin = origin
+            elif allowed_origins:
+                cors_origin = allowed_origins[0]
+            else:
+                cors_origin = "*"
+            
             return Response(
                 status_code=200,
                 headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Origin": cors_origin,
                     "Access-Control-Allow-Credentials": "true",
                     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
                     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",

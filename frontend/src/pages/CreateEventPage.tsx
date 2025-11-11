@@ -163,20 +163,91 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
     setIsPublished(eventToEdit.isPublished || eventToEdit.status === 'published' || eventToEdit.status === 'active');
   }, [eventToEdit]);
 
+  // Real-time validation functions matching backend rules
+  const validateField = (field: string, value: any): string | null => {
+    switch (field) {
+      case 'name':
+        if (!value || !value.trim()) return 'Nome do evento é obrigatório';
+        if (value.trim().length < 3) return 'Nome deve ter pelo menos 3 caracteres';
+        if (value.trim().length > 200) return 'Nome deve ter no máximo 200 caracteres';
+        return null;
+      
+      case 'description':
+        if (!value || !value.trim()) return 'Descrição é obrigatória';
+        if (value.trim().length < 10) return 'Descrição deve ter pelo menos 10 caracteres';
+        return null;
+      
+      case 'location':
+        if (!value || !value.trim()) return 'Localização é obrigatória';
+        if (value.trim().length < 3) return 'Localização deve ter pelo menos 3 caracteres';
+        return null;
+      
+      case 'startDate':
+        if (!value) return 'Data de início é obrigatória';
+        if (endDate && new Date(value) > new Date(endDate)) {
+          return 'Data de início deve ser anterior à data de término';
+        }
+        return null;
+      
+      case 'endDate':
+        if (!value) return 'Data de término é obrigatória';
+        if (startDate && new Date(value) < new Date(startDate)) {
+          return 'Data de término deve ser após data de início';
+        }
+        return null;
+      
+      case 'categories':
+        if (!value || value.length === 0) return 'Selecione pelo menos uma categoria';
+        return null;
+      
+      case 'maxParticipants':
+        if (!value || value < 1) return 'Número máximo de participantes deve ser pelo menos 1';
+        return null;
+      
+      default:
+        return null;
+    }
+  };
+
+  // Validate field on change
+  const handleFieldChange = (field: string, value: any) => {
+    const error = validateField(field, value);
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      if (error) {
+        newErrors[field] = error;
+      } else {
+        delete newErrors[field];
+      }
+      return newErrors;
+    });
+  };
+
   const validateBasicInfo = () => {
     const newErrors: Record<string, string> = {};
     
-    if (!name.trim()) newErrors.name = 'Nome do evento é obrigatório';
-    if (!description.trim()) newErrors.description = 'Descrição é obrigatória';
-    if (!theme.trim()) newErrors.theme = 'Temática é obrigatória';
-    if (!startDate) newErrors.startDate = 'Data de início é obrigatória';
-    if (!endDate) newErrors.endDate = 'Data de término é obrigatória';
-    if (!registrationDeadline) newErrors.registrationDeadline = 'Prazo de inscrição é obrigatório';
-    if (!location.trim()) newErrors.location = 'Localização é obrigatória';
+    // Validate all fields
+    const nameError = validateField('name', name);
+    if (nameError) newErrors.name = nameError;
     
-    if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
-      newErrors.endDate = 'Data de término deve ser após data de início';
-    }
+    const descriptionError = validateField('description', description);
+    if (descriptionError) newErrors.description = descriptionError;
+    
+    if (!theme.trim()) newErrors.theme = 'Temática é obrigatória';
+    
+    const startDateError = validateField('startDate', startDate);
+    if (startDateError) newErrors.startDate = startDateError;
+    
+    const endDateError = validateField('endDate', endDate);
+    if (endDateError) newErrors.endDate = endDateError;
+    
+    if (!registrationDeadline) newErrors.registrationDeadline = 'Prazo de inscrição é obrigatório';
+    
+    const locationError = validateField('location', location);
+    if (locationError) newErrors.location = locationError;
+    
+    const categoriesError = validateField('categories', categories);
+    if (categoriesError) newErrors.categories = categoriesError;
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -184,13 +255,17 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
 
   const addCategory = () => {
     if (currentCategory.trim() && !categories.includes(currentCategory.trim())) {
-      setCategories([...categories, currentCategory.trim()]);
+      const newCategories = [...categories, currentCategory.trim()];
+      setCategories(newCategories);
       setCurrentCategory('');
+      handleFieldChange('categories', newCategories);
     }
   };
 
   const removeCategory = (category: string) => {
-    setCategories(categories.filter(c => c !== category));
+    const newCategories = categories.filter(c => c !== category);
+    setCategories(newCategories);
+    handleFieldChange('categories', newCategories);
   };
 
   const addPrize = () => {
@@ -289,7 +364,49 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
       onComplete(result);
     } catch (error) {
       if (error instanceof ApiError) {
-        setSubmitError(error.message);
+        // Try to parse backend validation errors and map to form fields
+        if (error.status === 422 && error.details) {
+          const validationErrors: Record<string, string> = {};
+          
+          // FastAPI returns errors in 'detail' array format
+          if (Array.isArray(error.details)) {
+            error.details.forEach((err: any) => {
+              const fieldPath = err.loc?.slice(1) || []; // Remove 'body' from path
+              const fieldName = fieldPath[0];
+              
+              if (fieldName) {
+                // Map backend field names to frontend field names
+                const fieldMap: Record<string, string> = {
+                  'start_date': 'startDate',
+                  'end_date': 'endDate',
+                  'max_participants': 'maxParticipants',
+                  'max_teams': 'maxTeams',
+                };
+                
+                const frontendField = fieldMap[fieldName] || fieldName;
+                validationErrors[frontendField] = err.msg || 'Valor inválido';
+              }
+            });
+          }
+          
+          // If we found validation errors, merge them with existing errors
+          if (Object.keys(validationErrors).length > 0) {
+            setErrors(prev => ({ ...prev, ...validationErrors }));
+            setSubmitError('Por favor, corrija os erros no formulário antes de continuar.');
+            
+            // Navigate to the step with errors
+            if (validationErrors.name || validationErrors.description || validationErrors.location || 
+                validationErrors.startDate || validationErrors.endDate || validationErrors.categories) {
+              setStep('basic');
+            } else if (validationErrors.maxParticipants || validationErrors.maxTeams) {
+              setStep('details');
+            }
+          } else {
+            setSubmitError(error.message);
+          }
+        } else {
+          setSubmitError(error.message);
+        }
       } else if (error instanceof Error) {
         setSubmitError(error.message);
       } else {
@@ -394,9 +511,18 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                     label="Nome do Evento"
                     placeholder="Ex: Hackathon de Inovação 2025"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      handleFieldChange('name', e.target.value);
+                    }}
+                    className={errors.name ? 'border-red-500' : ''}
                   />
                   {errors.name && <small className="text-red-500 mt-1 block">{errors.name}</small>}
+                  {!errors.name && name && (
+                    <small className="text-muted-foreground mt-1 block">
+                      {name.trim().length}/200 caracteres {name.trim().length < 3 && '(mínimo 3)'}
+                    </small>
+                  )}
                 </div>
 
                 <div>
@@ -404,12 +530,22 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                     Descrição Detalhada
                   </label>
                   <textarea
-                    className="w-full glass-subtle rounded-lg p-3 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary"
+                    className={`w-full glass-subtle rounded-lg p-3 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary ${
+                      errors.description ? 'border border-red-500' : ''
+                    }`}
                     placeholder="Descreva o evento, objetivos, público-alvo..."
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      handleFieldChange('description', e.target.value);
+                    }}
                   />
                   {errors.description && <small className="text-red-500 mt-1 block">{errors.description}</small>}
+                  {!errors.description && description && (
+                    <small className="text-muted-foreground mt-1 block">
+                      {description.trim().length} caracteres {description.trim().length < 10 && '(mínimo 10)'}
+                    </small>
+                  )}
                 </div>
 
                 <div>
@@ -428,7 +564,13 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                       label="Data de Início"
                       type="date"
                       value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
+                      onChange={(e) => {
+                        setStartDate(e.target.value);
+                        handleFieldChange('startDate', e.target.value);
+                        // Re-validate endDate if it exists
+                        if (endDate) handleFieldChange('endDate', endDate);
+                      }}
+                      className={errors.startDate ? 'border-red-500' : ''}
                     />
                     {errors.startDate && <small className="text-red-500 mt-1 block">{errors.startDate}</small>}
                   </div>
@@ -437,7 +579,11 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                       label="Data de Término"
                       type="date"
                       value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
+                      onChange={(e) => {
+                        setEndDate(e.target.value);
+                        handleFieldChange('endDate', e.target.value);
+                      }}
+                      className={errors.endDate ? 'border-red-500' : ''}
                     />
                     {errors.endDate && <small className="text-red-500 mt-1 block">{errors.endDate}</small>}
                   </div>
@@ -480,9 +626,18 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                     label={locationType === 'online' ? 'Link/Plataforma' : 'Localização'}
                     placeholder={locationType === 'online' ? 'Ex: Zoom, Google Meet, Discord...' : 'Ex: Auditório Central - Universidade XYZ'}
                     value={location}
-                    onChange={(e) => setLocation(e.target.value)}
+                    onChange={(e) => {
+                      setLocation(e.target.value);
+                      handleFieldChange('location', e.target.value);
+                    }}
+                    className={errors.location ? 'border-red-500' : ''}
                   />
                   {errors.location && <small className="text-red-500 mt-1 block">{errors.location}</small>}
+                  {!errors.location && location && (
+                    <small className="text-muted-foreground mt-1 block">
+                      {location.trim().length} caracteres {location.trim().length < 3 && '(mínimo 3)'}
+                    </small>
+                  )}
                 </div>
               </div>
             </GlassCard>
@@ -493,8 +648,31 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                 onClick={() => {
                   if (validateBasicInfo()) {
                     setStep('details');
+                  } else {
+                    // Scroll to first error
+                    const firstErrorField = Object.keys(errors)[0];
+                    if (firstErrorField) {
+                      const element = document.querySelector(`[name="${firstErrorField}"]`) || 
+                                     document.querySelector(`input[value*="${firstErrorField}"]`) ||
+                                     document.querySelector(`textarea`);
+                      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
                   }
                 }}
+                disabled={
+                  !name.trim() || 
+                  !description.trim() || 
+                  !location.trim() || 
+                  !startDate || 
+                  !endDate ||
+                  categories.length === 0 ||
+                  !!errors.name || 
+                  !!errors.description || 
+                  !!errors.location || 
+                  !!errors.startDate || 
+                  !!errors.endDate ||
+                  !!errors.categories
+                }
               >
                 Próximo: Detalhes
               </GlassButton>
@@ -517,9 +695,15 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                     label="Número Máximo de Participantes"
                     type="number"
                     value={maxParticipants}
-                    onChange={(e) => setMaxParticipants(Number(e.target.value))}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      setMaxParticipants(value);
+                      handleFieldChange('maxParticipants', value);
+                    }}
                     min="1"
+                    className={errors.maxParticipants ? 'border-red-500' : ''}
                   />
+                  {errors.maxParticipants && <small className="text-red-500 mt-1 block">{errors.maxParticipants}</small>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -562,12 +746,21 @@ export function CreateEventPage({ onComplete, onCancel, eventToEdit }: CreateEve
                     {categories.map((category) => (
                       <Badge key={category} className="flex items-center gap-1">
                         {category}
-                        <button onClick={() => removeCategory(category)}>
+                        <button onClick={() => {
+                          removeCategory(category);
+                          handleFieldChange('categories', categories.filter(c => c !== category));
+                        }}>
                           <X className="h-3 w-3" />
                         </button>
                       </Badge>
                     ))}
                   </div>
+                )}
+                {errors.categories && <small className="text-red-500 mt-1 block">{errors.categories}</small>}
+                {!errors.categories && categories.length === 0 && (
+                  <small className="text-muted-foreground mt-1 block">
+                    Adicione pelo menos uma categoria
+                  </small>
                 )}
               </div>
             </GlassCard>

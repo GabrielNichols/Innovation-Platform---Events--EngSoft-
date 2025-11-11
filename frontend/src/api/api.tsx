@@ -260,16 +260,47 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       payload = undefined;
     }
 
-    const message =
-      typeof payload === 'string'
-        ? payload || `HTTP ${response.status}`
-        : payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+    // Extract detailed validation errors from FastAPI
+    let message = '';
+    let errorDetails: any = undefined;
+    
+    if (typeof payload === 'object' && payload !== null) {
+      // FastAPI returns validation errors in 'detail' array for 422 errors
+      if (response.status === 422 && Array.isArray((payload as any).detail)) {
+        errorDetails = (payload as any).detail;
+        const errors = errorDetails.map((err: any) => {
+          const field = err.loc?.slice(1).join('.') || 'unknown'; // Remove 'body' from loc
+          const msg = err.msg || 'Invalid value';
+          const type = err.type || '';
+          return `${field}: ${msg}${type ? ` (${type})` : ''}`;
+        });
+        message = errors.join(', ');
+      } else if (payload.error?.details) {
+        // Alternative error format
+        errorDetails = payload.error.details;
+        if (Array.isArray(errorDetails)) {
+          const errors = errorDetails.map((err: any) => {
+            const field = err.loc?.join('.') || 'unknown';
+            const msg = err.msg || 'Invalid value';
+            return `${field}: ${msg}`;
+          });
+          message = errors.join(', ');
+        } else {
+          message = JSON.stringify(errorDetails);
+        }
+      }
+      message = message || payload.error?.message || (payload as any).message || `HTTP ${response.status}`;
+    } else if (typeof payload === 'string') {
+      message = payload || `HTTP ${response.status}`;
+    } else {
+      message = `HTTP ${response.status}`;
+    }
 
     const error = new ApiError(
       response.status,
       message,
-      typeof payload === 'string' ? undefined : payload?.error?.code,
-      typeof payload === 'string' ? undefined : payload?.error?.details
+      typeof payload === 'object' && payload !== null ? payload.error?.code : undefined,
+      errorDetails || (typeof payload === 'object' && payload !== null ? payload.error?.details : undefined)
     );
 
     throw error;
@@ -337,16 +368,81 @@ export async function getEvent(eventId: string, signal?: AbortSignal): Promise<E
 }
 
 export async function createEvent(payload: CreateEventPayload): Promise<Event> {
+  // Transform frontend payload (camelCase) to backend format (snake_case)
+  // Convert dates to ISO datetime strings (backend expects datetime with timezone)
+  const convertToISO = (dateStr: string, isEndDate: boolean = false): string => {
+    if (!dateStr) return '';
+    
+    // If already in ISO format with time, use as is
+    if (dateStr.includes('T') && (dateStr.includes('Z') || dateStr.includes('+'))) {
+      return dateStr;
+    }
+    
+    // If has time but no timezone, add Z
+    if (dateStr.includes('T')) {
+      return dateStr.endsWith('Z') ? dateStr : `${dateStr}Z`;
+    }
+    
+    // If just date (YYYY-MM-DD), convert to ISO datetime
+    const time = isEndDate ? '23:59:59' : '00:00:00';
+    return `${dateStr}T${time}Z`;
+  };
+  
+  const startDateISO = convertToISO(payload.startDate, false);
+  const endDateISO = convertToISO(payload.endDate, true);
+  
+  // Ensure categories is not empty (required field)
+  const categories = payload.categories && payload.categories.length > 0 
+    ? payload.categories 
+    : ['geral']; // Default category if none provided
+  
+  const backendPayload = {
+    name: payload.name,
+    description: payload.description,
+    start_date: startDateISO,
+    end_date: endDateISO,
+    location: payload.location,
+    categories: categories,
+    tags: payload.tags || [],
+    max_participants: payload.maxParticipants || 100,
+    max_teams: Math.max(1, Math.floor((payload.maxParticipants || 100) / Math.max(1, payload.minTeamSize || 1))),
+    status: payload.isPublished ? 'published' : 'draft',
+  };
+  
   return request<Event>('/events', {
     method: 'POST',
-    body: payload,
+    body: backendPayload,
   });
 }
 
 export async function updateEvent(eventId: string, payload: UpdateEventPayload): Promise<Event> {
+  // Transform frontend payload (camelCase) to backend format (snake_case)
+  const backendPayload: Record<string, any> = {};
+  
+  if (payload.name !== undefined) backendPayload.name = payload.name;
+  if (payload.description !== undefined) backendPayload.description = payload.description;
+  if (payload.startDate !== undefined) {
+    backendPayload.start_date = payload.startDate.includes('T')
+      ? payload.startDate
+      : `${payload.startDate}T00:00:00Z`;
+  }
+  if (payload.endDate !== undefined) {
+    backendPayload.end_date = payload.endDate.includes('T')
+      ? payload.endDate
+      : `${payload.endDate}T23:59:59Z`;
+  }
+  if (payload.location !== undefined) backendPayload.location = payload.location;
+  if (payload.categories !== undefined) backendPayload.categories = payload.categories;
+  if (payload.tags !== undefined) backendPayload.tags = payload.tags;
+  if (payload.maxParticipants !== undefined) backendPayload.max_participants = payload.maxParticipants;
+  if (payload.maxParticipants !== undefined && payload.minTeamSize !== undefined) {
+    backendPayload.max_teams = Math.floor(payload.maxParticipants / payload.minTeamSize) || 10;
+  }
+  if (payload.status !== undefined) backendPayload.status = payload.status;
+  
   return request<Event>(`/events/${eventId}`, {
     method: 'PUT',
-    body: payload,
+    body: backendPayload,
   });
 }
 
@@ -387,20 +483,29 @@ export async function getEventProjects(
   eventId: string,
   signal?: AbortSignal
 ): Promise<EventProject[]> {
-  const data = await request<EventProjectsResponse | EventProject[]>(`/events/${eventId}/projects`, {
-    method: 'GET',
-    signal,
-  });
+  try {
+    const data = await request<EventProjectsResponse | EventProject[]>(`/events/${eventId}/projects`, {
+      method: 'GET',
+      signal,
+    });
 
-  if (Array.isArray(data)) {
-    return data;
+    if (Array.isArray(data)) {
+      return data;
+    }
+
+    if ('projects' in data && Array.isArray(data.projects)) {
+      return data.projects;
+    }
+
+    return [];
+  } catch (err) {
+    // 404 means no projects yet or event doesn't exist - return empty list
+    if (err instanceof ApiError && err.status === 404) {
+      return [];
+    }
+    // Re-throw other errors
+    throw err;
   }
-
-  if ('projects' in data && Array.isArray(data.projects)) {
-    return data.projects;
-  }
-
-  return [];
 }
 
 export interface CreateEventProjectPayload {
@@ -409,15 +514,26 @@ export interface CreateEventProjectPayload {
   category: string;
   teamName: string;
   skills: string[];
+  members?: number; // Total number of team members
 }
 
 export async function createEventProject(
   eventId: string,
   payload: CreateEventProjectPayload
 ): Promise<EventProject> {
+  // Transform frontend payload (camelCase) to backend format (snake_case)
+  const backendPayload = {
+    title: payload.title.trim(),
+    description: payload.description || '',
+    category: payload.category.trim(),
+    team_name: payload.teamName.trim(),
+    skills: payload.skills,
+    members: payload.members || 1, // Default to 1 if not provided
+  };
+  
   return request<EventProject>(`/events/${eventId}/projects`, {
     method: 'POST',
-    body: payload,
+    body: backendPayload,
   });
 }
 
@@ -437,20 +553,29 @@ export async function getEventParticipants(
   eventId: string,
   signal?: AbortSignal
 ): Promise<EventParticipant[]> {
-  const data = await request<EventParticipantsResponse | EventParticipant[]>(
-    `/events/${eventId}/participants`,
-    { method: 'GET', signal }
-  );
+  try {
+    const data = await request<EventParticipantsResponse | EventParticipant[]>(
+      `/events/${eventId}/participants`,
+      { method: 'GET', signal }
+    );
 
-  if (Array.isArray(data)) {
-    return data;
+    if (Array.isArray(data)) {
+      return data;
+    }
+
+    if ('participants' in data && Array.isArray(data.participants)) {
+      return data.participants;
+    }
+
+    return [];
+  } catch (err) {
+    // 404 means no participants yet or event doesn't exist - return empty list
+    if (err instanceof ApiError && err.status === 404) {
+      return [];
+    }
+    // Re-throw other errors
+    throw err;
   }
-
-  if ('participants' in data && Array.isArray(data.participants)) {
-    return data.participants;
-  }
-
-  return [];
 }
 
 export async function approveParticipant(
